@@ -15,8 +15,15 @@ import {
   angle,
   computeTorsoLean,
   squatConfig,
+  type RepResult,
   type RepState,
 } from './engine';
+import {
+  FeedbackManager,
+  VoiceSynthesizer,
+  type FeedbackResult,
+  type SupportedLanguage,
+} from './feedback';
 
 type InputMode = 'webcam' | 'video';
 
@@ -39,14 +46,37 @@ export default function App() {
   const [activeLeg, setActiveLeg] = useState<'left' | 'right' | null>(null);
   const [isBodyVisible, setIsBodyVisible] = useState<boolean>(true);
 
+  // Feedback, Voice & Language state
+  const [language, setLanguage] = useState<SupportedLanguage>('en-US');
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [latestFeedback, setLatestFeedback] = useState<FeedbackResult | null>(null);
+  const [lastRep, setLastRep] = useState<RepResult | null>(null);
+  const [repsHistory, setRepsHistory] = useState<RepResult[]>([]);
+
   // Debug Chart state
   const [chartData, setChartData] = useState<AngleDataPoint[]>([]);
 
-  // Engine refs (keep instances persistent across re-renders)
+  // Engine & Feedback persistent instances
   const stateMachineRef = useRef<RepStateMachine>(new RepStateMachine(squatConfig));
   const filterRef = useRef<OneEuroFilter>(
     new OneEuroFilter({ minCutoff: 1.0, beta: 0.007, dCutoff: 1.0 })
   );
+  const feedbackManagerRef = useRef<FeedbackManager>(new FeedbackManager(3000));
+  const voiceRef = useRef<VoiceSynthesizer>(
+    new VoiceSynthesizer({
+      muted: false,
+      language: 'en-US',
+      onFallbackNotice: (requested) => {
+        setVoiceNotice(`Browser has no voice for ${requested}, falling back to English.`);
+        setTimeout(() => setVoiceNotice(null), 5000);
+      },
+    })
+  );
+
+  // Skeleton fault joint highlighting
+  const highlightJointsRef = useRef<Set<number>>(new Set());
+  const highlightExpiryRef = useRef<number>(0);
 
   const overlayRef = useRef<OverlayHandle | null>(null);
   const cameraRef = useRef<CameraHandle | null>(null);
@@ -57,14 +87,43 @@ export default function App() {
   const lastFpsUpdateRef = useRef<number>(performance.now());
   const rafIdRef = useRef<number | null>(null);
 
+  // Unlock speech audio upon user click (browser autoplay restriction)
+  const unlockAudio = useCallback(() => {
+    voiceRef.current.enableAudio();
+  }, []);
+
+  // Sync mute setting
+  const handleToggleMute = () => {
+    unlockAudio();
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    voiceRef.current.setMuted(nextMuted);
+  };
+
+  // Sync language setting
+  const handleLanguageChange = (newLang: SupportedLanguage) => {
+    unlockAudio();
+    setLanguage(newLang);
+    voiceRef.current.setLanguage(newLang);
+  };
+
   // Reset function
   const handleReset = useCallback(() => {
     stateMachineRef.current.reset();
     filterRef.current.reset();
+    feedbackManagerRef.current.reset();
+    voiceRef.current.cancel();
+
+    highlightJointsRef.current.clear();
+    highlightExpiryRef.current = 0;
+
     setRepCount(0);
     setCurrentState('idle');
     setCurrentKneeAngle(null);
     setChartData([]);
+    setLatestFeedback(null);
+    setLastRep(null);
+    setRepsHistory([]);
   }, []);
 
   // Initialize MediaPipe PoseLandmarker
@@ -151,14 +210,18 @@ export default function App() {
         setInferenceTimeMs(endTime - startTime);
 
         if (result && result.landmarks && result.worldLandmarks) {
-          overlayRef.current?.draw(result.landmarks);
+          // Check if joint highlights are active (1.5s after faulty rep)
+          const isHighlightActive = timestamp < highlightExpiryRef.current;
+          overlayRef.current?.draw(
+            result.landmarks,
+            isHighlightActive ? highlightJointsRef.current : null
+          );
           setPoseDetected(true);
 
-          // Task 1.3: Choose leg with higher average visibility of hip, knee and ankle
+          // Choose leg with higher average visibility of hip, knee, ankle
           const legSelection = selectSquatLeg(result.worldLandmarks, 0.5, result.landmarks);
 
           if (!legSelection || !legSelection.isValid) {
-            // Landmarks needed are below 0.5 visibility -> show warning and skip frame
             setIsBodyVisible(false);
           } else {
             setIsBodyVisible(true);
@@ -174,7 +237,7 @@ export default function App() {
             // Smooth using One Euro filter with frame timestamp
             const smoothedKneeAngle = filterRef.current.filter(rawKneeAngle, timestamp);
 
-            // Compute torso lean from visible leg side (hip to shoulder)
+            // Compute torso lean from visible leg side
             const torsoLean = legSelection.landmarks.shoulder
               ? computeTorsoLean(legSelection.landmarks.hip, legSelection.landmarks.shoulder)
               : 0;
@@ -187,6 +250,46 @@ export default function App() {
             setCurrentKneeAngle(smoothedKneeAngle);
             setCurrentState(smResult.state);
             setRepCount(stateMachineRef.current.getRepCount());
+
+            // Handle completed rep
+            if (smResult.completedRep) {
+              const rep = smResult.completedRep;
+              setLastRep(rep);
+              setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
+
+              // Process feedback via FeedbackManager
+              const feedback = feedbackManagerRef.current.processRep(
+                rep,
+                timestamp,
+                voiceRef.current.getLanguage()
+              );
+
+              if (feedback) {
+                setLatestFeedback(feedback);
+                voiceRef.current.speak(feedback.message);
+              }
+
+              // Highlight faulty joints in red for 1.5s (1500ms)
+              if (rep.violations && rep.violations.length > 0) {
+                const joints = new Set<number>();
+                for (const v of rep.violations) {
+                  if (v.ruleId === 'depth') {
+                    joints.add(25); // Left knee
+                    joints.add(26); // Right knee
+                  } else if (v.ruleId === 'back') {
+                    joints.add(11); // Left shoulder
+                    joints.add(12); // Right shoulder
+                    joints.add(23); // Left hip
+                    joints.add(24); // Right hip
+                  }
+                }
+                highlightJointsRef.current = joints;
+                highlightExpiryRef.current = timestamp + 1500;
+              } else {
+                highlightJointsRef.current.clear();
+                highlightExpiryRef.current = 0;
+              }
+            }
 
             // Append to chart history (keep last 10 seconds)
             setChartData((prev) => {
@@ -248,7 +351,7 @@ export default function App() {
     setMode(newMode);
   };
 
-  // State badge color styles
+  // State badge styling
   const getStateBadge = (state: RepState) => {
     switch (state) {
       case 'idle':
@@ -277,11 +380,11 @@ export default function App() {
               <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                 AI Gym Coach
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                  Squat Engine (1.3)
+                  Phase 2.2
                 </span>
               </h1>
               <p className="text-xs text-slate-400">
-                Live Rep Counter • Knee Angle Tracking • 1€ Filter
+                Form Rules • Voice Feedback • Multilingual (EN/FR/AR)
               </p>
             </div>
           </div>
@@ -310,8 +413,48 @@ export default function App() {
             </button>
           </div>
 
-          {/* Metrics & Reset */}
+          {/* Audio & Language Controls & Reset */}
           <div className="flex items-center gap-2.5">
+            {/* Language Selector */}
+            <select
+              value={language}
+              onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+              aria-label="Language selector"
+              className="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
+            >
+              <option value="en-US">🇺🇸 English</option>
+              <option value="fr-FR">🇫🇷 Français</option>
+              <option value="ar">🇸🇦 العربية</option>
+            </select>
+
+            {/* Mute Toggle */}
+            <button
+              onClick={handleToggleMute}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
+                isMuted
+                  ? 'bg-rose-950/70 text-rose-300 border-rose-700/50 hover:bg-rose-900/60'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+              }`}
+              title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
+            >
+              {isMuted ? (
+                <>
+                  <svg className="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                  </svg>
+                  Muted
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                  Voice
+                </>
+              )}
+            </button>
+
             <FpsCounter
               fps={fps}
               delegate={delegate}
@@ -355,6 +498,14 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
+        {/* Voice fallback notification */}
+        {voiceNotice && (
+          <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
+            <span>ℹ️</span>
+            <span>{voiceNotice}</span>
+          </div>
+        )}
+
         {/* Model initialization alert banner */}
         {isModelLoading && (
           <div className="w-full bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3 flex items-center gap-3 text-xs text-indigo-300">
@@ -373,6 +524,48 @@ export default function App() {
         {modelError && (
           <div className="w-full bg-rose-950/40 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-300">
             <strong>Model Error:</strong> {modelError}
+          </div>
+        )}
+
+        {/* Live Feedback Banner (Large text) */}
+        {latestFeedback && (
+          <div
+            className={`w-full max-w-4xl rounded-2xl p-4 md:p-5 border shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 transition-all duration-300 ${
+              latestFeedback.isPositive
+                ? 'bg-gradient-to-r from-emerald-950/90 to-teal-950/90 border-emerald-500/50 shadow-emerald-950/50 text-emerald-100'
+                : 'bg-gradient-to-r from-rose-950/90 to-amber-950/90 border-rose-500/50 shadow-rose-950/50 text-rose-100'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">
+                {latestFeedback.isPositive ? '👏' : '⚠️'}
+              </span>
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-wider opacity-75">
+                  Live Coach Feedback
+                </span>
+                <p className="text-2xl md:text-3xl font-black tracking-tight mt-0.5">
+                  &ldquo;{latestFeedback.message}&rdquo;
+                </p>
+              </div>
+            </div>
+
+            {lastRep && (
+              <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-xl border border-white/10">
+                <span className="text-xs text-slate-300">Last Rep Score</span>
+                <span
+                  className={`text-2xl font-black font-mono ${
+                    lastRep.score >= 90
+                      ? 'text-emerald-400'
+                      : lastRep.score >= 70
+                      ? 'text-amber-400'
+                      : 'text-rose-400'
+                  }`}
+                >
+                  {lastRep.score}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -411,18 +604,24 @@ export default function App() {
             </div>
           </div>
 
-          {/* Threshold Targets */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg text-xs">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Targets</span>
-            <div className="flex flex-col gap-1 mt-1 text-[11px]">
-              <div className="flex justify-between items-center text-slate-300">
-                <span>Top (Stand):</span>
-                <span className="font-mono text-indigo-300 font-semibold">&gt; {squatConfig.upThreshold}°</span>
-              </div>
-              <div className="flex justify-between items-center text-slate-300">
-                <span>Bottom (Depth):</span>
-                <span className="font-mono text-emerald-300 font-semibold">&lt; {squatConfig.downThreshold}°</span>
-              </div>
+          {/* Last Rep Score card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Last Rep Score</span>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span
+                className={`text-4xl font-black font-mono tracking-tight ${
+                  lastRep
+                    ? lastRep.score >= 90
+                      ? 'text-emerald-400'
+                      : lastRep.score >= 70
+                      ? 'text-amber-400'
+                      : 'text-rose-400'
+                    : 'text-slate-600'
+                }`}
+              >
+                {lastRep ? lastRep.score : '--'}
+              </span>
+              <span className="text-[11px] text-slate-500">/ 100</span>
             </div>
           </div>
         </div>
@@ -432,14 +631,20 @@ export default function App() {
           {mode === 'webcam' ? (
             <Camera
               ref={cameraRef}
-              onVideoElement={(video) => setActiveVideo(video)}
+              onVideoElement={(video) => {
+                unlockAudio();
+                setActiveVideo(video);
+              }}
             >
               <Overlay ref={overlayRef} />
             </Camera>
           ) : (
             <VideoFileInput
               ref={videoInputRef}
-              onVideoElement={(video) => setActiveVideo(video)}
+              onVideoElement={(video) => {
+                unlockAudio();
+                setActiveVideo(video);
+              }}
             >
               <Overlay ref={overlayRef} />
             </VideoFileInput>
@@ -462,6 +667,97 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {/* Reps History Table (Last 10 Reps with score & violations) */}
+        {repsHistory.length > 0 && (
+          <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <span>📋</span> Last {repsHistory.length} Reps History
+              </h3>
+              <span className="text-[11px] text-slate-500">
+                Sorted by most recent
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                    <th className="py-2 px-3">Rep #</th>
+                    <th className="py-2 px-3">Score</th>
+                    <th className="py-2 px-3">Min Knee</th>
+                    <th className="py-2 px-3">Torso Lean</th>
+                    <th className="py-2 px-3">Descent</th>
+                    <th className="py-2 px-3">Start / Bottom (ms)</th>
+                    <th className="py-2 px-3">Feedback / Form Violations</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-mono">
+                  {repsHistory.map((rep, idx) => {
+                    const repIndex = repCount - idx;
+                    const hasViolations = rep.violations && rep.violations.length > 0;
+                    return (
+                      <tr key={rep.timestamp} className="hover:bg-slate-800/30">
+                        <td className="py-2.5 px-3 font-semibold text-slate-300">
+                          #{repIndex}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
+                              rep.score >= 90
+                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
+                                : rep.score >= 70
+                                ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
+                                : 'bg-rose-950 text-rose-300 border border-rose-700/60'
+                            }`}
+                          >
+                            {rep.score}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          {rep.metrics.minKneeAngle.toFixed(0)}°
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          {rep.metrics.maxTorsoLean.toFixed(0)}°
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400">
+                          {(rep.metrics.descentDurationMs / 1000).toFixed(1)}s
+                          <span className="block text-[10px] text-slate-500 font-mono">
+                            {Math.round(rep.metrics.descentDurationMs)}ms
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                          <div>Start: {Math.round(rep.metrics.descentStartMs)}ms</div>
+                          <div>Bottom: {Math.round(rep.metrics.bottomMs)}ms</div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {!hasViolations ? (
+                            <span className="text-emerald-400 text-[11px] font-sans font-medium flex items-center gap-1">
+                              ✓ Good form
+                            </span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1 font-sans">
+                              {rep.violations.map((v) => (
+                                <span
+                                  key={v.ruleId}
+                                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/80 text-rose-300 border border-rose-800/50"
+                                  title={`Penalty -${v.penalty}`}
+                                >
+                                  {v.message} (-{v.penalty})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Debug Panel: Live Line Chart */}
         <div className="w-full max-w-4xl">

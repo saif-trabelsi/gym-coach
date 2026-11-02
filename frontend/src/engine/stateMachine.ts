@@ -12,11 +12,17 @@ export class RepStateMachine {
   private config: ExerciseConfig;
   private state: RepState = 'idle';
   private repStartTimeMs: number | null = null;
-  private descentStartTimeMs: number | null = null;
-  private descentDurationMs = 0;
+
+  // Timestamps for accurate descent duration tracking
+  private lastAboveUpTimestampMs: number | null = null;
+  private lastBelowDownTimestampMs: number | null = null;
+  private descentStartMs: number | null = null;
+  private bottomMs: number | null = null;
+
   private minAngle = Infinity;
   private maxAngle = -Infinity;
   private minKneeAngle = Infinity;
+  private maxTargetAngle = -Infinity;
   private maxTorsoLean = 0;
   private reachedTarget = false;
   private reps: RepResult[] = [];
@@ -42,20 +48,30 @@ export class RepStateMachine {
     const isHighToLow = this.config.direction === 'high-to-low';
     let completedRep: RepResult | null = null;
 
-    // Track frame-level metrics during an active rep
-    if (this.state !== 'idle') {
-      this.minAngle = Math.min(this.minAngle, angle);
-      this.maxAngle = Math.max(this.maxAngle, angle);
-      this.minKneeAngle = Math.min(this.minKneeAngle, angle);
-      if (frameMetrics?.torsoLean !== undefined) {
-        this.maxTorsoLean = Math.max(this.maxTorsoLean, frameMetrics.torsoLean);
-      }
-    }
-
     if (isHighToLow) {
-      // e.g. Squat: Starts at high angle (> upThreshold), descends to low (< downThreshold)
+      // Squat: Starts at high angle (> upThreshold), descends to low (< downThreshold)
       const up = this.config.upThreshold;
       const down = this.config.downThreshold;
+
+      // Keep track of the last moment the knee angle was above the up threshold
+      if (angle >= up) {
+        this.lastAboveUpTimestampMs = timestampMs;
+      }
+
+      // Track frame-level metrics and inflection point during an active rep
+      if (this.state !== 'idle') {
+        this.minAngle = Math.min(this.minAngle, angle);
+        this.maxAngle = Math.max(this.maxAngle, angle);
+
+        if (angle < this.minKneeAngle) {
+          this.minKneeAngle = angle;
+          this.bottomMs = timestampMs;
+        }
+
+        if (frameMetrics?.torsoLean !== undefined) {
+          this.maxTorsoLean = Math.max(this.maxTorsoLean, frameMetrics.torsoLean);
+        }
+      }
 
       switch (this.state) {
         case 'idle':
@@ -63,11 +79,12 @@ export class RepStateMachine {
           if (angle < up - hysteresis) {
             this.state = 'descending';
             this.repStartTimeMs = timestampMs;
-            this.descentStartTimeMs = timestampMs;
-            this.descentDurationMs = 0;
+            // Descent starts at the last moment knee angle was above the up threshold
+            this.descentStartMs = this.lastAboveUpTimestampMs ?? timestampMs;
             this.minAngle = angle;
             this.maxAngle = angle;
             this.minKneeAngle = angle;
+            this.bottomMs = timestampMs;
             this.maxTorsoLean = frameMetrics?.torsoLean ?? 0;
             this.reachedTarget = false;
           }
@@ -77,8 +94,6 @@ export class RepStateMachine {
           if (angle <= down) {
             this.state = 'bottom';
             this.reachedTarget = true;
-            this.descentDurationMs =
-              this.descentStartTimeMs !== null ? timestampMs - this.descentStartTimeMs : 0;
           } else if (angle >= up) {
             // Aborted rep: returned to start without reaching bottom threshold
             this.resetCurrentRep();
@@ -100,10 +115,16 @@ export class RepStateMachine {
               this.repStartTimeMs !== null ? timestampMs - this.repStartTimeMs : 0;
 
             if (this.reachedTarget && durationMs >= this.config.minDurationMs) {
+              const descentStart = this.descentStartMs ?? this.repStartTimeMs ?? timestampMs;
+              const bottom = this.bottomMs ?? timestampMs;
+              const descentDurationMs = Math.max(0, bottom - descentStart);
+
               const metrics: RepMetrics = {
                 minKneeAngle: this.minKneeAngle,
                 maxTorsoLean: this.maxTorsoLean,
-                descentDurationMs: this.descentDurationMs,
+                descentDurationMs,
+                descentStartMs: descentStart,
+                bottomMs: bottom,
                 minAngle: this.minAngle,
                 maxAngle: this.maxAngle,
                 durationMs,
@@ -125,6 +146,7 @@ export class RepStateMachine {
 
             this.resetCurrentRep();
             this.state = 'idle';
+            this.lastAboveUpTimestampMs = timestampMs;
           } else if (angle <= down) {
             // Dropped back down to bottom before reaching top
             this.state = 'bottom';
@@ -136,17 +158,36 @@ export class RepStateMachine {
       const up = this.config.upThreshold;
       const down = this.config.downThreshold;
 
+      if (angle <= down) {
+        this.lastBelowDownTimestampMs = timestampMs;
+      }
+
+      if (this.state !== 'idle') {
+        this.minAngle = Math.min(this.minAngle, angle);
+        this.maxAngle = Math.max(this.maxAngle, angle);
+
+        if (angle > this.maxTargetAngle) {
+          this.maxTargetAngle = angle;
+          this.bottomMs = timestampMs;
+        }
+
+        if (frameMetrics?.torsoLean !== undefined) {
+          this.maxTorsoLean = Math.max(this.maxTorsoLean, frameMetrics.torsoLean);
+        }
+      }
+
       switch (this.state) {
         case 'idle':
           // Start rep when angle rises above down threshold plus hysteresis
           if (angle > down + hysteresis) {
             this.state = 'ascending';
             this.repStartTimeMs = timestampMs;
-            this.descentStartTimeMs = timestampMs;
-            this.descentDurationMs = 0;
+            this.descentStartMs = this.lastBelowDownTimestampMs ?? timestampMs;
             this.minAngle = angle;
             this.maxAngle = angle;
             this.minKneeAngle = angle;
+            this.maxTargetAngle = angle;
+            this.bottomMs = timestampMs;
             this.maxTorsoLean = frameMetrics?.torsoLean ?? 0;
             this.reachedTarget = false;
           }
@@ -167,7 +208,6 @@ export class RepStateMachine {
           // Once dropping below up threshold minus hysteresis, transition to descending
           if (angle < up - hysteresis) {
             this.state = 'descending';
-            this.descentStartTimeMs = timestampMs;
           }
           break;
 
@@ -176,14 +216,17 @@ export class RepStateMachine {
             // Returned to bottom: complete rep if criteria met
             const durationMs =
               this.repStartTimeMs !== null ? timestampMs - this.repStartTimeMs : 0;
-            const descentDuration =
-              this.descentStartTimeMs !== null ? timestampMs - this.descentStartTimeMs : 0;
+            const descentStart = this.descentStartMs ?? this.repStartTimeMs ?? timestampMs;
+            const bottom = this.bottomMs ?? timestampMs;
+            const descentDurationMs = Math.max(0, bottom - descentStart);
 
             if (this.reachedTarget && durationMs >= this.config.minDurationMs) {
               const metrics: RepMetrics = {
                 minKneeAngle: this.minKneeAngle,
                 maxTorsoLean: this.maxTorsoLean,
-                descentDurationMs: descentDuration,
+                descentDurationMs,
+                descentStartMs: descentStart,
+                bottomMs: bottom,
                 minAngle: this.minAngle,
                 maxAngle: this.maxAngle,
                 durationMs,
@@ -205,6 +248,7 @@ export class RepStateMachine {
 
             this.resetCurrentRep();
             this.state = 'idle';
+            this.lastBelowDownTimestampMs = timestampMs;
           } else if (angle >= up) {
             // Rose back up before reaching bottom
             this.state = 'bottom';
@@ -221,11 +265,12 @@ export class RepStateMachine {
 
   private resetCurrentRep(): void {
     this.repStartTimeMs = null;
-    this.descentStartTimeMs = null;
-    this.descentDurationMs = 0;
+    this.descentStartMs = null;
+    this.bottomMs = null;
     this.minAngle = Infinity;
     this.maxAngle = -Infinity;
     this.minKneeAngle = Infinity;
+    this.maxTargetAngle = -Infinity;
     this.maxTorsoLean = 0;
     this.reachedTarget = false;
   }
@@ -245,6 +290,8 @@ export class RepStateMachine {
   public reset(): void {
     this.state = 'idle';
     this.reps = [];
+    this.lastAboveUpTimestampMs = null;
+    this.lastBelowDownTimestampMs = null;
     this.resetCurrentRep();
   }
 }

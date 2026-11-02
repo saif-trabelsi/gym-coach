@@ -438,6 +438,8 @@ describe('Squat Form Rules & Boundary Threshold Tests', () => {
     minKneeAngle: 85,
     maxTorsoLean: 25,
     descentDurationMs: 1200,
+    descentStartMs: 1000,
+    bottomMs: 2200,
     minAngle: 85,
     maxAngle: 165,
     durationMs: 2200,
@@ -547,6 +549,8 @@ describe('Scoring & Penalty Stacking', () => {
     minKneeAngle: 85,
     maxTorsoLean: 25,
     descentDurationMs: 1200,
+    descentStartMs: 1000,
+    bottomMs: 2200,
     minAngle: 85,
     maxAngle: 165,
     durationMs: 2200,
@@ -692,5 +696,88 @@ describe('Full State Machine Rep Metrics & Form Rules Integration', () => {
     expect(completedRep!.violations[0].ruleId).toBe('depth');
     expect(completedRep!.violations[0].message).toBe('Go lower');
     expect(completedRep!.metrics.minKneeAngle).toBeCloseTo(110, 1);
+  });
+
+  it('accurately calculates a synthetic slow descent (3 s) as about 3000 ms', () => {
+    const sm = new RepStateMachine(squatConfig);
+    const dt = 25; // 40 fps
+    let t = 1000;
+
+    // Standing at up threshold (160°) at t = 1000
+    sm.update(160, t);
+
+    // Descend from 160° down to 80° over exactly 3000 ms (120 steps * 25ms = 3000ms)
+    // Minimum angle 80° is reached at t = 4000
+    const descentSteps = 120;
+    for (let i = 1; i <= descentSteps; i++) {
+      t += dt;
+      const a = 160 - (i / descentSteps) * (160 - 80);
+      sm.update(a, t);
+    }
+
+    expect(t).toBe(4000);
+    expect(sm.getState()).toBe('bottom');
+
+    // Ascend back to 160° over 1000 ms (40 steps * 25ms = 1000ms)
+    const ascentSteps = 40;
+    let completedRep = null;
+    for (let i = 1; i <= ascentSteps; i++) {
+      t += dt;
+      const a = 80 + (i / ascentSteps) * (160 - 80);
+      const res = sm.update(a, t);
+      if (res.completedRep) {
+        completedRep = res.completedRep;
+      }
+    }
+
+    expect(completedRep).not.toBeNull();
+    expect(completedRep!.metrics.descentStartMs).toBe(1000);
+    expect(completedRep!.metrics.bottomMs).toBe(4000);
+    expect(completedRep!.metrics.descentDurationMs).toBeCloseTo(3000, -1);
+    // Slow descent (3000 ms >= 800 ms) should not violate tempo
+    const hasTempoViolation = completedRep!.violations.some((v) => v.ruleId === 'tempo');
+    expect(hasTempoViolation).toBe(false);
+  });
+
+  it('accurately calculates a fast descent (300 ms) as about 300 ms and triggers tempo violation', () => {
+    const sm = new RepStateMachine(squatConfig);
+    const dt = 25;
+    let t = 1000;
+
+    // Standing at up threshold (160°) at t = 1000
+    sm.update(160, t);
+
+    // Fast drop from 160° down to 80° in 300 ms (12 steps * 25ms = 300ms)
+    const descentSteps = 12;
+    for (let i = 1; i <= descentSteps; i++) {
+      t += dt;
+      const a = 160 - (i / descentSteps) * (160 - 80);
+      sm.update(a, t);
+    }
+
+    expect(t).toBe(1300);
+    expect(sm.getState()).toBe('bottom');
+
+    // Ascend back up over 400 ms (16 steps * 25ms = 400ms)
+    // Total rep duration = 700 ms >= 600 ms minDurationMs
+    const ascentSteps = 16;
+    let completedRep = null;
+    for (let i = 1; i <= ascentSteps; i++) {
+      t += dt;
+      const a = 80 + (i / ascentSteps) * (160 - 80);
+      const res = sm.update(a, t);
+      if (res.completedRep) {
+        completedRep = res.completedRep;
+      }
+    }
+
+    expect(completedRep).not.toBeNull();
+    expect(completedRep!.metrics.descentStartMs).toBe(1000);
+    expect(completedRep!.metrics.bottomMs).toBe(1300);
+    expect(completedRep!.metrics.descentDurationMs).toBeCloseTo(300, -1);
+    // Fast descent (300 ms < 800 ms) must trigger tempo violation
+    const tempoViolation = completedRep!.violations.find((v) => v.ruleId === 'tempo');
+    expect(tempoViolation).toBeDefined();
+    expect(tempoViolation?.message).toBe('Slow down');
   });
 });

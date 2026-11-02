@@ -29,6 +29,8 @@ export interface RepMetrics {
   minKneeAngle: number;
   maxTorsoLean: number;
   descentDurationMs: number;
+  descentStartMs: number;
+  bottomMs: number;
   minAngle: number;
   maxAngle: number;
   durationMs: number;
