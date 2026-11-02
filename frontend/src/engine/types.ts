@@ -42,6 +42,13 @@ export interface ExerciseConfig {
    * Defaults to 5 degrees if omitted.
    */
   hysteresis?: number;
+
+  /**
+   * Optional metadata
+   */
+  name?: string;
+  view?: 'side' | 'front' | 'any';
+  signal?: string;
 }
 
 export interface RepResult {

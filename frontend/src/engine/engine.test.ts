@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { angle, isLandmarkVisible, areLandmarksVisible, torsoLength, normalizeDistance } from './features';
+import {
+  angle,
+  isLandmarkVisible,
+  areLandmarksVisible,
+  torsoLength,
+  normalizeDistance,
+  selectSquatLeg,
+  SQUAT_LANDMARK_INDICES,
+} from './features';
 import { OneEuroFilter } from './oneEuroFilter';
 import { RepStateMachine } from './stateMachine';
+import { squatConfig } from './exercises/squat';
 import type { ExerciseConfig, Landmark3D } from './types';
 
 describe('Feature Extractor: 3D Geometry and Visibility', () => {
@@ -269,5 +278,113 @@ describe('Rep State Machine', () => {
     }
 
     expect(sm.getRepCount()).toBe(2);
+  });
+});
+
+describe('Squat Configuration & Leg Selection Logic', () => {
+  it('exports compliant squat ExerciseConfig', () => {
+    expect(squatConfig.upThreshold).toBe(160);
+    expect(squatConfig.downThreshold).toBe(100);
+    expect(squatConfig.minDurationMs).toBe(600);
+    expect(squatConfig.direction).toBe('high-to-low');
+    expect(squatConfig.view).toBe('side');
+  });
+
+  function create33Landmarks(): Landmark3D[] {
+    return Array.from({ length: 33 }, () => ({
+      x: 0,
+      y: 0,
+      z: 0,
+      visibility: 0.5,
+    }));
+  }
+
+  it('selects the leg with the higher average visibility (right leg higher)', () => {
+    const lms = create33Landmarks();
+
+    // Left leg: 23, 25, 27 -> avg = (0.5 + 0.6 + 0.4) / 3 = 0.5
+    lms[SQUAT_LANDMARK_INDICES.LEFT_HIP].visibility = 0.5;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_KNEE].visibility = 0.6;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_ANKLE].visibility = 0.4;
+
+    // Right leg: 24, 26, 28 -> avg = (0.9 + 0.8 + 0.85) / 3 = 0.85
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_HIP].visibility = 0.9;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_KNEE].visibility = 0.8;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE].visibility = 0.85;
+
+    const res = selectSquatLeg(lms, 0.5);
+    expect(res).not.toBeNull();
+    expect(res!.side).toBe('right');
+    expect(res!.averageVisibility).toBeCloseTo(0.85, 2);
+    expect(res!.isValid).toBe(true);
+    expect(res!.landmarks.hip).toBe(lms[SQUAT_LANDMARK_INDICES.RIGHT_HIP]);
+    expect(res!.landmarks.knee).toBe(lms[SQUAT_LANDMARK_INDICES.RIGHT_KNEE]);
+    expect(res!.landmarks.ankle).toBe(lms[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE]);
+  });
+
+  it('selects the leg with the higher average visibility (left leg higher)', () => {
+    const lms = create33Landmarks();
+
+    // Left leg: 23, 25, 27 -> avg = (0.9 + 0.85 + 0.95) / 3 = 0.9
+    lms[SQUAT_LANDMARK_INDICES.LEFT_HIP].visibility = 0.9;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_KNEE].visibility = 0.85;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_ANKLE].visibility = 0.95;
+
+    // Right leg: 24, 26, 28 -> avg = (0.3 + 0.2 + 0.4) / 3 = 0.3
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_HIP].visibility = 0.3;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_KNEE].visibility = 0.2;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE].visibility = 0.4;
+
+    const res = selectSquatLeg(lms, 0.5);
+    expect(res).not.toBeNull();
+    expect(res!.side).toBe('left');
+    expect(res!.averageVisibility).toBeCloseTo(0.9, 2);
+    expect(res!.isValid).toBe(true);
+  });
+
+  it('marks frame invalid when the highest average visibility is below 0.5', () => {
+    const lms = create33Landmarks();
+
+    // Left leg avg = 0.2
+    lms[SQUAT_LANDMARK_INDICES.LEFT_HIP].visibility = 0.2;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_KNEE].visibility = 0.2;
+    lms[SQUAT_LANDMARK_INDICES.LEFT_ANKLE].visibility = 0.2;
+
+    // Right leg avg = 0.4 (< 0.5 threshold)
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_HIP].visibility = 0.4;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_KNEE].visibility = 0.4;
+    lms[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE].visibility = 0.4;
+
+    const res = selectSquatLeg(lms, 0.5);
+    expect(res).not.toBeNull();
+    expect(res!.side).toBe('right');
+    expect(res!.isValid).toBe(false);
+  });
+
+  it('handles null, undefined, or incomplete landmark arrays gracefully', () => {
+    expect(selectSquatLeg(null)).toBeNull();
+    expect(selectSquatLeg(undefined)).toBeNull();
+    expect(selectSquatLeg([])).toBeNull();
+    expect(selectSquatLeg(Array.from({ length: 15 }))).toBeNull();
+  });
+
+  it('falls back to normalized landmarks visibility when world landmarks lack visibility', () => {
+    const worldLms = create33Landmarks().map((l) => ({ x: l.x, y: l.y, z: l.z })); // no visibility property
+    const normLms = create33Landmarks();
+
+    // Set visibility only on normalized landmarks
+    normLms[SQUAT_LANDMARK_INDICES.RIGHT_HIP].visibility = 0.85;
+    normLms[SQUAT_LANDMARK_INDICES.RIGHT_KNEE].visibility = 0.85;
+    normLms[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE].visibility = 0.85;
+
+    normLms[SQUAT_LANDMARK_INDICES.LEFT_HIP].visibility = 0.4;
+    normLms[SQUAT_LANDMARK_INDICES.LEFT_KNEE].visibility = 0.4;
+    normLms[SQUAT_LANDMARK_INDICES.LEFT_ANKLE].visibility = 0.4;
+
+    const res = selectSquatLeg(worldLms, 0.5, normLms);
+    expect(res).not.toBeNull();
+    expect(res!.side).toBe('right');
+    expect(res!.isValid).toBe(true);
+    expect(res!.averageVisibility).toBeCloseTo(0.85, 2);
   });
 });
