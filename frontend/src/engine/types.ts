@@ -14,6 +14,34 @@ export type RepDirection = 'high-to-low' | 'low-to-high';
 
 export type RepState = 'idle' | 'descending' | 'bottom' | 'ascending';
 
+export type RuleSeverity = 'low' | 'medium' | 'high';
+
+export interface FormViolation {
+  ruleId: string;
+  message: string;
+  severity: RuleSeverity;
+  penalty: number;
+  actualValue: number;
+  threshold: number;
+}
+
+export interface RepMetrics {
+  minKneeAngle: number;
+  maxTorsoLean: number;
+  descentDurationMs: number;
+  minAngle: number;
+  maxAngle: number;
+  durationMs: number;
+}
+
+export interface Rule {
+  id: string;
+  severity: RuleSeverity;
+  penalty: number;
+  message: string;
+  check: (metrics: RepMetrics) => FormViolation | null;
+}
+
 export interface ExerciseConfig {
   /**
    * Angle threshold when the user is at the starting/standing/extended position.
@@ -49,6 +77,18 @@ export interface ExerciseConfig {
   name?: string;
   view?: 'side' | 'front' | 'any';
   signal?: string;
+
+  /**
+   * Form rule thresholds
+   */
+  depthThreshold?: number; // min knee angle below this (degrees)
+  backThreshold?: number; // max torso lean below this (degrees)
+  tempoThreshold?: number; // descent duration at least this (ms)
+
+  /**
+   * Optional active rules to evaluate on rep completion
+   */
+  rules?: Rule[];
 }
 
 export interface RepResult {
@@ -56,9 +96,16 @@ export interface RepResult {
   maxAngle: number;
   durationMs: number;
   timestamp: number;
+  metrics: RepMetrics;
+  violations: FormViolation[];
+  score: number;
 }
 
 export interface StateMachineUpdateResult {
   state: RepState;
   completedRep: RepResult | null;
+}
+
+export interface FrameMetricsInput {
+  torsoLean?: number;
 }

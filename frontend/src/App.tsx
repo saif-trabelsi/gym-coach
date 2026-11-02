@@ -13,6 +13,7 @@ import {
   OneEuroFilter,
   selectSquatLeg,
   angle,
+  computeTorsoLean,
   squatConfig,
   type RepState,
 } from './engine';
@@ -173,8 +174,15 @@ export default function App() {
             // Smooth using One Euro filter with frame timestamp
             const smoothedKneeAngle = filterRef.current.filter(rawKneeAngle, timestamp);
 
-            // Feed smoothed angle into exercise state machine
-            const smResult = stateMachineRef.current.update(smoothedKneeAngle, timestamp);
+            // Compute torso lean from visible leg side (hip to shoulder)
+            const torsoLean = legSelection.landmarks.shoulder
+              ? computeTorsoLean(legSelection.landmarks.hip, legSelection.landmarks.shoulder)
+              : 0;
+
+            // Feed smoothed angle and torso lean into exercise state machine
+            const smResult = stateMachineRef.current.update(smoothedKneeAngle, timestamp, {
+              torsoLean,
+            });
 
             setCurrentKneeAngle(smoothedKneeAngle);
             setCurrentState(smResult.state);

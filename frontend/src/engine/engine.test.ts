@@ -6,12 +6,15 @@ import {
   torsoLength,
   normalizeDistance,
   selectSquatLeg,
+  computeTorsoLean,
   SQUAT_LANDMARK_INDICES,
 } from './features';
 import { OneEuroFilter } from './oneEuroFilter';
 import { RepStateMachine } from './stateMachine';
 import { squatConfig } from './exercises/squat';
-import type { ExerciseConfig, Landmark3D } from './types';
+import { createDepthRule, createBackRule, createTempoRule, createSquatRules } from './rules';
+import { calculateScore, evaluateRep } from './scoring';
+import type { ExerciseConfig, FormViolation, Landmark3D, RepMetrics } from './types';
 
 describe('Feature Extractor: 3D Geometry and Visibility', () => {
   it('correctly computes a 90 degree angle from known geometry', () => {
@@ -284,10 +287,13 @@ describe('Rep State Machine', () => {
 describe('Squat Configuration & Leg Selection Logic', () => {
   it('exports compliant squat ExerciseConfig', () => {
     expect(squatConfig.upThreshold).toBe(160);
-    expect(squatConfig.downThreshold).toBe(100);
+    expect(squatConfig.downThreshold).toBe(120);
     expect(squatConfig.minDurationMs).toBe(600);
     expect(squatConfig.direction).toBe('high-to-low');
     expect(squatConfig.view).toBe('side');
+    expect(squatConfig.depthThreshold).toBe(100);
+    expect(squatConfig.backThreshold).toBe(45);
+    expect(squatConfig.tempoThreshold).toBe(800);
   });
 
   function create33Landmarks(): Landmark3D[] {
@@ -386,5 +392,305 @@ describe('Squat Configuration & Leg Selection Logic', () => {
     expect(res!.side).toBe('right');
     expect(res!.isValid).toBe(true);
     expect(res!.averageVisibility).toBeCloseTo(0.85, 2);
+  });
+});
+
+describe('Torso Lean Angle Calculation', () => {
+  it('computes 0 degrees for perfectly vertical upright posture', () => {
+    const hip: Landmark3D = { x: 0, y: 0, z: 0 };
+    const shoulder: Landmark3D = { x: 0, y: -0.6, z: 0 }; // directly above hip
+    expect(computeTorsoLean(hip, shoulder)).toBeCloseTo(0, 4);
+  });
+
+  it('computes accurate lean angle from known geometric orientations', () => {
+    const hip: Landmark3D = { x: 0, y: 0, z: 0 };
+
+    // 30 degrees lean forward (Z-axis tilt)
+    const len = 0.5;
+    const s30: Landmark3D = {
+      x: 0,
+      y: -len * Math.cos((30 * Math.PI) / 180),
+      z: len * Math.sin((30 * Math.PI) / 180),
+    };
+    expect(computeTorsoLean(hip, s30)).toBeCloseTo(30, 4);
+
+    // 45 degrees lean
+    const s45: Landmark3D = {
+      x: 0,
+      y: -len * Math.cos((45 * Math.PI) / 180),
+      z: len * Math.sin((45 * Math.PI) / 180),
+    };
+    expect(computeTorsoLean(hip, s45)).toBeCloseTo(45, 4);
+
+    // 90 degrees lean (completely horizontal)
+    const s90: Landmark3D = { x: 0, y: 0, z: len };
+    expect(computeTorsoLean(hip, s90)).toBeCloseTo(90, 4);
+  });
+
+  it('handles coincident points safely without crashing or NaN', () => {
+    const pt: Landmark3D = { x: 1, y: 1, z: 1 };
+    expect(computeTorsoLean(pt, pt)).toBe(0);
+  });
+});
+
+describe('Squat Form Rules & Boundary Threshold Tests', () => {
+  const dummyMetrics = (overrides: Partial<RepMetrics> = {}): RepMetrics => ({
+    minKneeAngle: 85,
+    maxTorsoLean: 25,
+    descentDurationMs: 1200,
+    minAngle: 85,
+    maxAngle: 165,
+    durationMs: 2200,
+    ...overrides,
+  });
+
+  const testConfig: ExerciseConfig = {
+    ...squatConfig,
+    depthThreshold: 100,
+    backThreshold: 45,
+    tempoThreshold: 800,
+  };
+
+  it('depth rule: fires only when knee angle fails to drop below 100 degrees', () => {
+    const depthRule = createDepthRule(testConfig);
+
+    // Just below threshold (valid depth -> no violation)
+    const validJustBelow = depthRule.check(dummyMetrics({ minKneeAngle: 99.5 }));
+    expect(validJustBelow).toBeNull();
+
+    // At threshold (requires strictly below 100 -> violation)
+    const atThreshold = depthRule.check(dummyMetrics({ minKneeAngle: 100 }));
+    expect(atThreshold).not.toBeNull();
+    expect(atThreshold?.ruleId).toBe('depth');
+    expect(atThreshold?.severity).toBe('high');
+    expect(atThreshold?.penalty).toBe(30);
+    expect(atThreshold?.message).toBe('Go lower');
+
+    // Just above threshold (shallow squat -> violation)
+    const shallow = depthRule.check(dummyMetrics({ minKneeAngle: 100.5 }));
+    expect(shallow).not.toBeNull();
+    expect(shallow?.ruleId).toBe('depth');
+    expect(shallow?.penalty).toBe(30);
+    expect(shallow?.message).toBe('Go lower');
+  });
+
+  it('back rule: fires only when torso lean reaches or exceeds 45 degrees', () => {
+    const backRule = createBackRule(testConfig);
+
+    // Just below threshold (good upright chest -> no violation)
+    const validJustBelow = backRule.check(dummyMetrics({ maxTorsoLean: 44.5 }));
+    expect(validJustBelow).toBeNull();
+
+    // At threshold (requires below 45 -> violation)
+    const atThreshold = backRule.check(dummyMetrics({ maxTorsoLean: 45 }));
+    expect(atThreshold).not.toBeNull();
+    expect(atThreshold?.ruleId).toBe('back');
+    expect(atThreshold?.severity).toBe('high');
+    expect(atThreshold?.penalty).toBe(25);
+    expect(atThreshold?.message).toBe('Keep your chest up');
+
+    // Just above threshold (excessive lean -> violation)
+    const leaningForward = backRule.check(dummyMetrics({ maxTorsoLean: 45.5 }));
+    expect(leaningForward).not.toBeNull();
+    expect(leaningForward?.ruleId).toBe('back');
+    expect(leaningForward?.penalty).toBe(25);
+    expect(leaningForward?.message).toBe('Keep your chest up');
+  });
+
+  it('tempo rule: fires only when descent duration is less than 800 ms', () => {
+    const tempoRule = createTempoRule(testConfig);
+
+    // At threshold (descent of at least 800 ms -> no violation)
+    const atThreshold = tempoRule.check(dummyMetrics({ descentDurationMs: 800 }));
+    expect(atThreshold).toBeNull();
+
+    // Just above threshold (controlled descent -> no violation)
+    const validJustAbove = tempoRule.check(dummyMetrics({ descentDurationMs: 801 }));
+    expect(validJustAbove).toBeNull();
+
+    // Just below threshold (too fast descent -> violation)
+    const tooFast = tempoRule.check(dummyMetrics({ descentDurationMs: 799 }));
+    expect(tooFast).not.toBeNull();
+    expect(tooFast?.ruleId).toBe('tempo');
+    expect(tooFast?.severity).toBe('low');
+    expect(tooFast?.penalty).toBe(15);
+    expect(tooFast?.message).toBe('Slow down');
+  });
+
+  it('thresholds are dynamically read from config and not hardcoded', () => {
+    const customConfig: ExerciseConfig = {
+      ...squatConfig,
+      depthThreshold: 90, // Custom strict depth
+      backThreshold: 35, // Custom strict chest
+      tempoThreshold: 1000, // Custom slower tempo
+    };
+
+    const rules = createSquatRules(customConfig);
+    const [depthRule, backRule, tempoRule] = rules;
+
+    // Angle of 95° is valid under default 100°, but fails under custom 90°
+    expect(depthRule.check(dummyMetrics({ minKneeAngle: 95 }))).not.toBeNull();
+    expect(depthRule.check(dummyMetrics({ minKneeAngle: 89 }))).toBeNull();
+
+    // Torso lean of 40° is valid under default 45°, but fails under custom 35°
+    expect(backRule.check(dummyMetrics({ maxTorsoLean: 40 }))).not.toBeNull();
+    expect(backRule.check(dummyMetrics({ maxTorsoLean: 34 }))).toBeNull();
+
+    // Tempo of 900ms is valid under default 800ms, but fails under custom 1000ms
+    expect(tempoRule.check(dummyMetrics({ descentDurationMs: 900 }))).not.toBeNull();
+    expect(tempoRule.check(dummyMetrics({ descentDurationMs: 1050 }))).toBeNull();
+  });
+});
+
+describe('Scoring & Penalty Stacking', () => {
+  const dummyMetrics = (overrides: Partial<RepMetrics> = {}): RepMetrics => ({
+    minKneeAngle: 85,
+    maxTorsoLean: 25,
+    descentDurationMs: 1200,
+    minAngle: 85,
+    maxAngle: 165,
+    durationMs: 2200,
+    ...overrides,
+  });
+
+  const rules = createSquatRules(squatConfig);
+
+  it('a perfect synthetic rep gives score 100 with zero violations', () => {
+    const perfectMetrics = dummyMetrics({
+      minKneeAngle: 80, // well below 100
+      maxTorsoLean: 20, // well below 45
+      descentDurationMs: 1200, // well above 800
+    });
+
+    const result = evaluateRep(perfectMetrics, rules);
+    expect(result.violations).toHaveLength(0);
+    expect(result.score).toBe(100);
+  });
+
+  it('stacks violations and deducts cumulative penalties correctly', () => {
+    // 1. Only Depth violated: 100 - 30 = 70
+    const depthFailed = evaluateRep(dummyMetrics({ minKneeAngle: 105 }), rules);
+    expect(depthFailed.violations).toHaveLength(1);
+    expect(depthFailed.violations[0].ruleId).toBe('depth');
+    expect(depthFailed.score).toBe(70);
+
+    // 2. Depth (30) + Back (25) violated: 100 - (30 + 25) = 45
+    const depthAndBackFailed = evaluateRep(
+      dummyMetrics({ minKneeAngle: 105, maxTorsoLean: 50 }),
+      rules
+    );
+    expect(depthAndBackFailed.violations).toHaveLength(2);
+    expect(depthAndBackFailed.score).toBe(45);
+
+    // 3. All three violated (Depth 30 + Back 25 + Tempo 15 = 70 penalty): 100 - 70 = 30
+    const allFailed = evaluateRep(
+      dummyMetrics({ minKneeAngle: 105, maxTorsoLean: 50, descentDurationMs: 500 }),
+      rules
+    );
+    expect(allFailed.violations).toHaveLength(3);
+    expect(allFailed.score).toBe(30);
+
+    // 4. Back (25) + Tempo (15) violated: 100 - 40 = 60
+    const backAndTempoFailed = evaluateRep(
+      dummyMetrics({ minKneeAngle: 85, maxTorsoLean: 50, descentDurationMs: 500 }),
+      rules
+    );
+    expect(backAndTempoFailed.violations).toHaveLength(2);
+    expect(backAndTempoFailed.score).toBe(60);
+  });
+
+  it('score never goes below 0 when penalties exceed 100', () => {
+    const extremeViolations: FormViolation[] = [
+      { ruleId: 'rule1', severity: 'high', penalty: 50, message: 'm1', actualValue: 0, threshold: 0 },
+      { ruleId: 'rule2', severity: 'high', penalty: 40, message: 'm2', actualValue: 0, threshold: 0 },
+      { ruleId: 'rule3', severity: 'high', penalty: 30, message: 'm3', actualValue: 0, threshold: 0 },
+    ]; // total penalty 120
+
+    expect(calculateScore(extremeViolations)).toBe(0);
+  });
+});
+
+describe('Full State Machine Rep Metrics & Form Rules Integration', () => {
+  it('records metrics frame by frame and emits rep with score 100 on perfect squat', () => {
+    const sm = new RepStateMachine(squatConfig);
+    const dt = 33.33;
+    let t = 0;
+
+    // Start in standing position (165°)
+    sm.update(165, t, { torsoLean: 10 });
+    t += dt;
+
+    // Slowly descend from 165° down to 85° over 60 steps (~2000 ms)
+    // Spending > 850 ms in the descending phase (from 155° down to 120°)
+    const descentSteps = 60;
+    for (let i = 1; i <= descentSteps; i++) {
+      const a = 165 - (i / descentSteps) * (165 - 85);
+      const lean = 10 + (i / descentSteps) * 15; // lean up to 25°
+      sm.update(a, t, { torsoLean: lean });
+      t += dt;
+    }
+
+    // In bottom
+    expect(sm.getState()).toBe('bottom');
+
+    // Ascend back to 165° over 30 steps (~1000 ms)
+    const ascentSteps = 30;
+    let completedRep = null;
+    for (let i = 1; i <= ascentSteps; i++) {
+      const a = 85 + (i / ascentSteps) * (165 - 85);
+      const res = sm.update(a, t, { torsoLean: 20 });
+      if (res.completedRep) {
+        completedRep = res.completedRep;
+      }
+      t += dt;
+    }
+
+    expect(completedRep).not.toBeNull();
+    expect(completedRep!.score).toBe(100);
+    expect(completedRep!.violations).toHaveLength(0);
+    expect(completedRep!.metrics.minKneeAngle).toBeCloseTo(85, 1);
+    expect(completedRep!.metrics.maxTorsoLean).toBeCloseTo(25, 1);
+    expect(completedRep!.metrics.descentDurationMs).toBeGreaterThanOrEqual(800);
+    expect(completedRep!.metrics.durationMs).toBeGreaterThanOrEqual(2000);
+  });
+
+  it('correctly catches shallow depth (down to 110°) and applies depth penalty', () => {
+    const sm = new RepStateMachine(squatConfig);
+    const dt = 33.33;
+    let t = 0;
+
+    // Stand
+    sm.update(165, t, { torsoLean: 10 });
+    t += dt;
+
+    // Slowly descend to 110° (< 120 downThreshold so rep counts, but >= 100 depthThreshold)
+    // Over 45 steps (~1500 ms) so tempo rule passes (descent >= 800 ms)
+    const descentSteps = 45;
+    for (let i = 1; i <= descentSteps; i++) {
+      const a = 165 - (i / descentSteps) * (165 - 110);
+      sm.update(a, t, { torsoLean: 20 });
+      t += dt;
+    }
+
+    expect(sm.getState()).toBe('bottom');
+
+    // Ascend back to 165°
+    const ascentSteps = 30;
+    let completedRep = null;
+    for (let i = 1; i <= ascentSteps; i++) {
+      const a = 110 + (i / ascentSteps) * (165 - 110);
+      const res = sm.update(a, t, { torsoLean: 20 });
+      if (res.completedRep) {
+        completedRep = res.completedRep;
+      }
+      t += dt;
+    }
+
+    expect(completedRep).not.toBeNull();
+    expect(completedRep!.score).toBe(70); // 100 - 30 (depth violation only)
+    expect(completedRep!.violations).toHaveLength(1);
+    expect(completedRep!.violations[0].ruleId).toBe('depth');
+    expect(completedRep!.violations[0].message).toBe('Go lower');
+    expect(completedRep!.metrics.minKneeAngle).toBeCloseTo(110, 1);
   });
 });

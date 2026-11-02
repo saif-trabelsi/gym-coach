@@ -103,6 +103,8 @@ export function normalizeDistance(distance: number, torso: number): number {
 }
 
 export const SQUAT_LANDMARK_INDICES = {
+  LEFT_SHOULDER: 11,
+  RIGHT_SHOULDER: 12,
   LEFT_HIP: 23,
   RIGHT_HIP: 24,
   LEFT_KNEE: 25,
@@ -117,6 +119,7 @@ export interface LegLandmarks {
   hip: Landmark3D;
   knee: Landmark3D;
   ankle: Landmark3D;
+  shoulder?: Landmark3D;
 }
 
 export interface LegSelectionResult {
@@ -124,6 +127,25 @@ export interface LegSelectionResult {
   averageVisibility: number;
   landmarks: LegLandmarks;
   isValid: boolean;
+}
+
+/**
+ * Computes torso lean angle in degrees between the hip-to-shoulder vector and the vertical axis.
+ * Uses 3D world landmarks for the selected side.
+ * 0 degrees = perfectly upright/vertical torso.
+ * Higher values = leaning forward/back.
+ */
+export function computeTorsoLean(hip: Landmark3D, shoulder: Landmark3D): number {
+  const dx = shoulder.x - hip.x;
+  const dy = shoulder.y - hip.y;
+  const dz = shoulder.z - hip.z;
+
+  const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (length === 0) return 0;
+
+  // The vertical alignment is the ratio of vertical displacement |dy| to 3D length
+  const cosTheta = Math.max(-1, Math.min(1, Math.abs(dy) / length));
+  return Math.acos(cosTheta) * (180 / Math.PI);
 }
 
 /**
@@ -181,13 +203,26 @@ export function selectSquatLeg(
       getVisibilityScore(rightAnkle, normalizedLandmarks?.[SQUAT_LANDMARK_INDICES.RIGHT_ANKLE])) /
     3.0;
 
+  const leftShoulder = worldLandmarks[SQUAT_LANDMARK_INDICES.LEFT_SHOULDER];
+  const rightShoulder = worldLandmarks[SQUAT_LANDMARK_INDICES.RIGHT_SHOULDER];
+
   // Choose the leg with the higher average visibility
   const isRightHigher = rightVis > leftVis;
   const side: LegSide = isRightHigher ? 'right' : 'left';
   const averageVisibility = isRightHigher ? rightVis : leftVis;
   const legLandmarks: LegLandmarks = isRightHigher
-    ? { hip: rightHip, knee: rightKnee, ankle: rightAnkle }
-    : { hip: leftHip, knee: leftKnee, ankle: leftAnkle };
+    ? {
+        hip: rightHip,
+        knee: rightKnee,
+        ankle: rightAnkle,
+        shoulder: rightShoulder,
+      }
+    : {
+        hip: leftHip,
+        knee: leftKnee,
+        ankle: leftAnkle,
+        shoulder: leftShoulder,
+      };
 
   const isValid = averageVisibility >= minVisibility;
 
