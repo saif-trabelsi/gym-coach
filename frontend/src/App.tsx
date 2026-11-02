@@ -12,9 +12,11 @@ import {
   RepStateMachine,
   OneEuroFilter,
   selectSquatLeg,
+  selectBicepCurlArm,
   angle,
   computeTorsoLean,
   squatConfig,
+  bicepCurlConfig,
   type RepResult,
   type RepState,
 } from './engine';
@@ -26,9 +28,11 @@ import {
 } from './feedback';
 
 type InputMode = 'webcam' | 'video';
+export type ExerciseType = 'squat' | 'bicepCurl';
 
 export default function App() {
   const [mode, setMode] = useState<InputMode>('webcam');
+  const [exercise, setExercise] = useState<ExerciseType>('squat');
   const [detector, setDetector] = useState<PoseDetector | null>(null);
   const [delegate, setDelegate] = useState<'GPU' | 'CPU' | null>(null);
   const [isModelLoading, setIsModelLoading] = useState<boolean>(true);
@@ -42,8 +46,8 @@ export default function App() {
   // Engine state
   const [repCount, setRepCount] = useState<number>(0);
   const [currentState, setCurrentState] = useState<RepState>('idle');
-  const [currentKneeAngle, setCurrentKneeAngle] = useState<number | null>(null);
-  const [activeLeg, setActiveLeg] = useState<'left' | 'right' | null>(null);
+  const [currentAngle, setCurrentAngle] = useState<number | null>(null);
+  const [activeSide, setActiveSide] = useState<{ side: 'left' | 'right'; type: 'leg' | 'arm' } | null>(null);
   const [isBodyVisible, setIsBodyVisible] = useState<boolean>(true);
 
   // Feedback, Voice & Language state
@@ -58,6 +62,7 @@ export default function App() {
   const [chartData, setChartData] = useState<AngleDataPoint[]>([]);
 
   // Engine & Feedback persistent instances
+  const activeConfig = exercise === 'squat' ? squatConfig : bicepCurlConfig;
   const stateMachineRef = useRef<RepStateMachine>(new RepStateMachine(squatConfig));
   const filterRef = useRef<OneEuroFilter>(
     new OneEuroFilter({ minCutoff: 1.0, beta: 0.007, dCutoff: 1.0 })
@@ -119,12 +124,21 @@ export default function App() {
 
     setRepCount(0);
     setCurrentState('idle');
-    setCurrentKneeAngle(null);
+    setCurrentAngle(null);
+    setActiveSide(null);
     setChartData([]);
     setLatestFeedback(null);
     setLastRep(null);
     setRepsHistory([]);
   }, []);
+
+  // Handle exercise view change
+  const handleExerciseChange = (newExercise: ExerciseType) => {
+    if (newExercise === exercise) return;
+    setExercise(newExercise);
+    stateMachineRef.current.setConfig(newExercise === 'squat' ? squatConfig : bicepCurlConfig);
+    handleReset();
+  };
 
   // Initialize MediaPipe PoseLandmarker
   useEffect(() => {
@@ -218,85 +232,154 @@ export default function App() {
           );
           setPoseDetected(true);
 
-          // Choose leg with higher average visibility of hip, knee, ankle
-          const legSelection = selectSquatLeg(result.worldLandmarks, 0.5, result.landmarks);
+          if (exercise === 'squat') {
+            // Squat exercise tracking: Choose leg with higher average visibility
+            const legSelection = selectSquatLeg(result.worldLandmarks, 0.5, result.landmarks);
 
-          if (!legSelection || !legSelection.isValid) {
-            setIsBodyVisible(false);
-          } else {
-            setIsBodyVisible(true);
-            setActiveLeg(legSelection.side);
+            if (!legSelection || !legSelection.isValid) {
+              setIsBodyVisible(false);
+            } else {
+              setIsBodyVisible(true);
+              setActiveSide({ side: legSelection.side, type: 'leg' });
 
-            // Compute raw knee angle from 3D world landmarks
-            const rawKneeAngle = angle(
-              legSelection.landmarks.hip,
-              legSelection.landmarks.knee,
-              legSelection.landmarks.ankle
-            );
-
-            // Smooth using One Euro filter with frame timestamp
-            const smoothedKneeAngle = filterRef.current.filter(rawKneeAngle, timestamp);
-
-            // Compute torso lean from visible leg side
-            const torsoLean = legSelection.landmarks.shoulder
-              ? computeTorsoLean(legSelection.landmarks.hip, legSelection.landmarks.shoulder)
-              : 0;
-
-            // Feed smoothed angle and torso lean into exercise state machine
-            const smResult = stateMachineRef.current.update(smoothedKneeAngle, timestamp, {
-              torsoLean,
-            });
-
-            setCurrentKneeAngle(smoothedKneeAngle);
-            setCurrentState(smResult.state);
-            setRepCount(stateMachineRef.current.getRepCount());
-
-            // Handle completed rep
-            if (smResult.completedRep) {
-              const rep = smResult.completedRep;
-              setLastRep(rep);
-              setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
-
-              // Process feedback via FeedbackManager
-              const feedback = feedbackManagerRef.current.processRep(
-                rep,
-                timestamp,
-                voiceRef.current.getLanguage()
+              const rawAngle = angle(
+                legSelection.landmarks.hip,
+                legSelection.landmarks.knee,
+                legSelection.landmarks.ankle
               );
+              const smoothedAngle = filterRef.current.filter(rawAngle, timestamp);
+              const torsoLean = legSelection.landmarks.shoulder
+                ? computeTorsoLean(legSelection.landmarks.hip, legSelection.landmarks.shoulder)
+                : 0;
 
-              if (feedback) {
-                setLatestFeedback(feedback);
-                voiceRef.current.speak(feedback.message);
-              }
+              const smResult = stateMachineRef.current.update(smoothedAngle, timestamp, {
+                torsoLean,
+                worldLandmarks: result.worldLandmarks,
+              });
 
-              // Highlight faulty joints in red for 1.5s (1500ms)
-              if (rep.violations && rep.violations.length > 0) {
-                const joints = new Set<number>();
-                for (const v of rep.violations) {
-                  if (v.ruleId === 'depth') {
-                    joints.add(25); // Left knee
-                    joints.add(26); // Right knee
-                  } else if (v.ruleId === 'back') {
-                    joints.add(11); // Left shoulder
-                    joints.add(12); // Right shoulder
-                    joints.add(23); // Left hip
-                    joints.add(24); // Right hip
-                  }
+              setCurrentAngle(smoothedAngle);
+              setCurrentState(smResult.state);
+              setRepCount(stateMachineRef.current.getRepCount());
+
+              if (smResult.completedRep) {
+                const rep = smResult.completedRep;
+                setLastRep(rep);
+                setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
+
+                const feedback = feedbackManagerRef.current.processRep(
+                  rep,
+                  timestamp,
+                  voiceRef.current.getLanguage()
+                );
+
+                if (feedback) {
+                  setLatestFeedback(feedback);
+                  voiceRef.current.speak(feedback.message);
                 }
-                highlightJointsRef.current = joints;
-                highlightExpiryRef.current = timestamp + 1500;
-              } else {
-                highlightJointsRef.current.clear();
-                highlightExpiryRef.current = 0;
-              }
-            }
 
-            // Append to chart history (keep last 10 seconds)
-            setChartData((prev) => {
-              const cutoff = timestamp - 10000;
-              const filtered = prev.filter((pt) => pt.timestamp >= cutoff);
-              return [...filtered, { timestamp, angle: smoothedKneeAngle }];
-            });
+                // Highlight faulty joints
+                if (rep.violations && rep.violations.length > 0) {
+                  const joints = new Set<number>();
+                  for (const v of rep.violations) {
+                    if (v.ruleId === 'depth') {
+                      joints.add(25); // Left knee
+                      joints.add(26); // Right knee
+                    } else if (v.ruleId === 'back') {
+                      joints.add(11); // Left shoulder
+                      joints.add(12); // Right shoulder
+                      joints.add(23); // Left hip
+                      joints.add(24); // Right hip
+                    }
+                  }
+                  highlightJointsRef.current = joints;
+                  highlightExpiryRef.current = timestamp + 1500;
+                } else {
+                  highlightJointsRef.current.clear();
+                  highlightExpiryRef.current = 0;
+                }
+              }
+
+              // Append to chart history (keep last 10 seconds)
+              setChartData((prev) => {
+                const cutoff = timestamp - 10000;
+                const filtered = prev.filter((pt) => pt.timestamp >= cutoff);
+                return [...filtered, { timestamp, angle: smoothedAngle }];
+              });
+            }
+          } else {
+            // Bicep curl tracking: Choose arm with higher average visibility
+            const armSelection = selectBicepCurlArm(result.worldLandmarks, 0.5, result.landmarks);
+
+            if (!armSelection || !armSelection.isValid) {
+              setIsBodyVisible(false);
+            } else {
+              setIsBodyVisible(true);
+              setActiveSide({ side: armSelection.side, type: 'arm' });
+
+              const rawAngle = angle(
+                armSelection.landmarks.shoulder,
+                armSelection.landmarks.elbow,
+                armSelection.landmarks.wrist
+              );
+              const smoothedAngle = filterRef.current.filter(rawAngle, timestamp);
+
+              const smResult = stateMachineRef.current.update(smoothedAngle, timestamp, {
+                worldLandmarks: result.worldLandmarks,
+                landmarks: result.landmarks,
+                side: armSelection.side,
+              });
+
+              setCurrentAngle(smoothedAngle);
+              setCurrentState(smResult.state);
+              setRepCount(stateMachineRef.current.getRepCount());
+
+              if (smResult.completedRep) {
+                const rep = smResult.completedRep;
+                setLastRep(rep);
+                setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
+
+                const feedback = feedbackManagerRef.current.processRep(
+                  rep,
+                  timestamp,
+                  voiceRef.current.getLanguage()
+                );
+
+                if (feedback) {
+                  setLatestFeedback(feedback);
+                  voiceRef.current.speak(feedback.message);
+                }
+
+                // Highlight faulty joints for bicep curl
+                if (rep.violations && rep.violations.length > 0) {
+                  const joints = new Set<number>();
+                  for (const v of rep.violations) {
+                    if (v.ruleId === 'range' || v.ruleId === 'extension' || v.ruleId === 'elbowDrift') {
+                      joints.add(13); // Left elbow
+                      joints.add(14); // Right elbow
+                      joints.add(15); // Left wrist
+                      joints.add(16); // Right wrist
+                    } else if (v.ruleId === 'swing') {
+                      joints.add(11); // Left shoulder
+                      joints.add(12); // Right shoulder
+                      joints.add(23); // Left hip
+                      joints.add(24); // Right hip
+                    }
+                  }
+                  highlightJointsRef.current = joints;
+                  highlightExpiryRef.current = timestamp + 1500;
+                } else {
+                  highlightJointsRef.current.clear();
+                  highlightExpiryRef.current = 0;
+                }
+              }
+
+              // Append to chart history (keep last 10 seconds)
+              setChartData((prev) => {
+                const cutoff = timestamp - 10000;
+                const filtered = prev.filter((pt) => pt.timestamp >= cutoff);
+                return [...filtered, { timestamp, angle: smoothedAngle }];
+              });
+            }
           }
         } else {
           overlayRef.current?.clear();
@@ -330,7 +413,7 @@ export default function App() {
       }
       overlayRef.current?.clear();
     };
-  }, [detector, activeVideo, syncCanvasDimensions]);
+  }, [detector, activeVideo, syncCanvasDimensions, exercise]);
 
   // Switch between camera and video file mode
   const handleModeChange = (newMode: InputMode) => {
@@ -352,20 +435,33 @@ export default function App() {
   };
 
   // State badge styling
-  const getStateBadge = (state: RepState) => {
-    switch (state) {
-      case 'idle':
-        return { text: 'IDLE (Standing)', color: 'bg-slate-800 text-slate-300 border-slate-700' };
-      case 'descending':
-        return { text: 'DESCENDING ↓', color: 'bg-cyan-950 text-cyan-300 border-cyan-700 animate-pulse' };
-      case 'bottom':
-        return { text: 'BOTTOM (Parallel) 🎯', color: 'bg-emerald-950 text-emerald-300 border-emerald-600 font-bold' };
-      case 'ascending':
-        return { text: 'ASCENDING ↑', color: 'bg-indigo-950 text-indigo-300 border-indigo-700 animate-pulse' };
+  const getStateBadge = (state: RepState, ex: ExerciseType) => {
+    if (ex === 'squat') {
+      switch (state) {
+        case 'idle':
+          return { text: 'IDLE (Standing)', color: 'bg-slate-800 text-slate-300 border-slate-700' };
+        case 'descending':
+          return { text: 'DESCENDING ↓', color: 'bg-cyan-950 text-cyan-300 border-cyan-700 animate-pulse' };
+        case 'bottom':
+          return { text: 'BOTTOM (Parallel) 🎯', color: 'bg-emerald-950 text-emerald-300 border-emerald-600 font-bold' };
+        case 'ascending':
+          return { text: 'ASCENDING ↑', color: 'bg-indigo-950 text-indigo-300 border-indigo-700 animate-pulse' };
+      }
+    } else {
+      switch (state) {
+        case 'idle':
+          return { text: 'READY (Extended)', color: 'bg-slate-800 text-slate-300 border-slate-700' };
+        case 'descending':
+          return { text: 'CURLING UP ⬆', color: 'bg-cyan-950 text-cyan-300 border-cyan-700 animate-pulse' };
+        case 'bottom':
+          return { text: 'PEAK CONTRACTION 🎯', color: 'bg-emerald-950 text-emerald-300 border-emerald-600 font-bold' };
+        case 'ascending':
+          return { text: 'LOWERING ⬇', color: 'bg-indigo-950 text-indigo-300 border-indigo-700 animate-pulse' };
+      }
     }
   };
 
-  const stateBadge = getStateBadge(currentState);
+  const stateBadge = getStateBadge(currentState, exercise);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -380,7 +476,7 @@ export default function App() {
               <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                 AI Gym Coach
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                  Phase 2.2
+                  {exercise === 'squat' ? 'Squat View' : 'Bicep Curl View'}
                 </span>
               </h1>
               <p className="text-xs text-slate-400">
@@ -389,21 +485,45 @@ export default function App() {
             </div>
           </div>
 
+          {/* Exercise View Selector */}
+          <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-indigo-500/30 shadow-inner">
+            <button
+              onClick={() => handleExerciseChange('squat')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                exercise === 'squat'
+                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>🏋️</span> Squat
+            </button>
+            <button
+              onClick={() => handleExerciseChange('bicepCurl')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                exercise === 'bicepCurl'
+                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>💪</span> Bicep Curl
+            </button>
+          </div>
+
           {/* Mode Switcher */}
           <div className="flex items-center bg-slate-800/80 p-1 rounded-xl border border-slate-700/70">
             <button
               onClick={() => handleModeChange('webcam')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 mode === 'webcam'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              📹 Live Webcam
+              📹 Webcam
             </button>
             <button
               onClick={() => handleModeChange('video')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 mode === 'video'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -573,23 +693,27 @@ export default function App() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-4xl">
           {/* Rep Counter */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Squat Reps</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              {exercise === 'squat' ? 'Squat Reps' : 'Curl Reps'}
+            </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-4xl font-black text-indigo-400 font-mono tracking-tight">{repCount}</span>
               <span className="text-xs text-slate-500">completed</span>
             </div>
           </div>
 
-          {/* Knee Angle */}
+          {/* Joint Angle (Knee or Elbow) */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Knee Angle</span>
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              {exercise === 'squat' ? 'Knee Angle' : 'Elbow Angle'}
+            </span>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="text-4xl font-black text-cyan-400 font-mono tracking-tight">
-                {currentKneeAngle !== null ? currentKneeAngle.toFixed(0) : '--'}
+                {currentAngle !== null ? currentAngle.toFixed(0) : '--'}
                 <span className="text-2xl font-light">°</span>
               </span>
-              <span className="text-[11px] text-slate-500">
-                {activeLeg ? `${activeLeg} leg` : 'tracking'}
+              <span className="text-[11px] text-slate-500 capitalize">
+                {activeSide ? `${activeSide.side} ${activeSide.type}` : 'tracking'}
               </span>
             </div>
           </div>
@@ -650,7 +774,7 @@ export default function App() {
             </VideoFileInput>
           )}
 
-          {/* "Step back, full body in frame" warning notification banner */}
+          {/* Warning banner when key landmarks not visible */}
           {activeVideo && !isBodyVisible && (
             <div className="absolute top-4 inset-x-4 mx-auto max-w-md bg-amber-500/90 text-slate-950 border border-amber-300/80 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur-md flex items-center justify-center gap-2 z-10 transition-all">
               <svg className="w-5 h-5 text-slate-950 flex-shrink-0 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -662,10 +786,33 @@ export default function App() {
                 />
               </svg>
               <span className="font-bold text-xs md:text-sm tracking-wide">
-                Step back, full body in frame
+                {exercise === 'squat'
+                  ? 'Step back, full body in frame'
+                  : 'Keep torso and active arm in frame'}
               </span>
             </div>
           )}
+        </div>
+
+        {/* Exercise Coaching Tips Banner */}
+        <div className="w-full max-w-4xl bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{exercise === 'squat' ? '💡' : '🎯'}</span>
+            <span>
+              {exercise === 'squat' ? (
+                <>
+                  <strong className="text-slate-200">Squat Form Guide:</strong> Best viewed from side. Squat below parallel (&lt;100°), keep chest up (&lt;45°), and control tempo (&gt;0.8s descent).
+                </>
+              ) : (
+                <>
+                  <strong className="text-slate-200">Bicep Curl Guide:</strong> Front or side view. Pin your elbows (&le;22% drift), avoid body sway (&le;15%), fully extend (&ge;150°), and curl up (&le;55°).
+                </>
+              )}
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500">
+            {exercise === 'squat' ? 'Knee angle signal (160°/120°)' : 'Elbow angle signal (140°/70°)'}
+          </span>
         </div>
 
         {/* Reps History Table (Last 10 Reps with score & violations) */}
@@ -673,7 +820,7 @@ export default function App() {
           <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span>📋</span> Last {repsHistory.length} Reps History
+                <span>📋</span> Last {repsHistory.length} {exercise === 'squat' ? 'Squat' : 'Curl'} Reps History
               </h3>
               <span className="text-[11px] text-slate-500">
                 Sorted by most recent
@@ -686,10 +833,21 @@ export default function App() {
                   <tr className="border-b border-slate-800 text-slate-400 font-semibold">
                     <th className="py-2 px-3">Rep #</th>
                     <th className="py-2 px-3">Score</th>
-                    <th className="py-2 px-3">Min Knee</th>
-                    <th className="py-2 px-3">Torso Lean</th>
-                    <th className="py-2 px-3">Descent</th>
-                    <th className="py-2 px-3">Start / Bottom (ms)</th>
+                    {exercise === 'squat' ? (
+                      <>
+                        <th className="py-2 px-3">Min Knee</th>
+                        <th className="py-2 px-3">Torso Lean</th>
+                        <th className="py-2 px-3">Descent</th>
+                        <th className="py-2 px-3">Start / Bottom (ms)</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="py-2 px-3">Min Elbow (Height)</th>
+                        <th className="py-2 px-3">Max Elbow (Extension)</th>
+                        <th className="py-2 px-3">Elbow Drift</th>
+                        <th className="py-2 px-3">Body Sway</th>
+                      </>
+                    )}
                     <th className="py-2 px-3">Feedback / Form Violations</th>
                   </tr>
                 </thead>
@@ -715,22 +873,41 @@ export default function App() {
                             {rep.score}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-300">
-                          {rep.metrics.minKneeAngle.toFixed(0)}°
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300">
-                          {rep.metrics.maxTorsoLean.toFixed(0)}°
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400">
-                          {(rep.metrics.descentDurationMs / 1000).toFixed(1)}s
-                          <span className="block text-[10px] text-slate-500 font-mono">
-                            {Math.round(rep.metrics.descentDurationMs)}ms
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
-                          <div>Start: {Math.round(rep.metrics.descentStartMs)}ms</div>
-                          <div>Bottom: {Math.round(rep.metrics.bottomMs)}ms</div>
-                        </td>
+                        {exercise === 'squat' ? (
+                          <>
+                            <td className="py-2.5 px-3 text-slate-300">
+                              {rep.metrics.minKneeAngle !== undefined ? `${rep.metrics.minKneeAngle.toFixed(0)}°` : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-300">
+                              {rep.metrics.maxTorsoLean !== undefined ? `${rep.metrics.maxTorsoLean.toFixed(0)}°` : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-400">
+                              {(rep.metrics.descentDurationMs / 1000).toFixed(1)}s
+                              <span className="block text-[10px] text-slate-500 font-mono">
+                                {Math.round(rep.metrics.descentDurationMs)}ms
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
+                              <div>Start: {Math.round(rep.metrics.descentStartMs)}ms</div>
+                              <div>Bottom: {Math.round(rep.metrics.bottomMs)}ms</div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="py-2.5 px-3 text-slate-300">
+                              {rep.metrics.minElbowAngle !== undefined ? `${rep.metrics.minElbowAngle.toFixed(0)}°` : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-300">
+                              {rep.metrics.maxElbowAngle !== undefined ? `${rep.metrics.maxElbowAngle.toFixed(0)}°` : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-400">
+                              {rep.metrics.elbowDrift !== undefined ? `${(rep.metrics.elbowDrift * 100).toFixed(1)}%` : '-'}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-400">
+                              {rep.metrics.bodySway !== undefined ? `${(rep.metrics.bodySway * 100).toFixed(1)}%` : '-'}
+                            </td>
+                          </>
+                        )}
                         <td className="py-2.5 px-3">
                           {!hasViolations ? (
                             <span className="text-emerald-400 text-[11px] font-sans font-medium flex items-center gap-1">
@@ -763,9 +940,9 @@ export default function App() {
         <div className="w-full max-w-4xl">
           <AngleChart
             data={chartData}
-            upThreshold={squatConfig.upThreshold}
-            downThreshold={squatConfig.downThreshold}
-            currentAngle={currentKneeAngle}
+            upThreshold={activeConfig.upThreshold}
+            downThreshold={activeConfig.downThreshold}
+            currentAngle={currentAngle}
             width={800}
             height={200}
           />

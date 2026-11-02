@@ -25,15 +25,32 @@ export interface FormViolation {
   threshold: number;
 }
 
-export interface RepMetrics {
-  minKneeAngle: number;
-  maxTorsoLean: number;
-  descentDurationMs: number;
-  descentStartMs: number;
-  bottomMs: number;
+export interface CommonRepMetrics {
   minAngle: number;
   maxAngle: number;
   durationMs: number;
+  descentStartMs: number;
+  bottomMs: number;
+  descentDurationMs: number;
+}
+
+export interface RepMetrics {
+  minAngle: number;
+  maxAngle: number;
+  durationMs: number;
+  descentDurationMs: number;
+  descentStartMs: number;
+  bottomMs: number;
+
+  // Squat metrics
+  minKneeAngle?: number;
+  maxTorsoLean?: number;
+
+  // Bicep curl metrics
+  minElbowAngle?: number;
+  maxElbowAngle?: number;
+  elbowDrift?: number;
+  bodySway?: number;
 }
 
 export interface Rule {
@@ -81,16 +98,59 @@ export interface ExerciseConfig {
   signal?: string;
 
   /**
-   * Form rule thresholds
+   * Form rule thresholds (Squat)
    */
   depthThreshold?: number; // min knee angle below this (degrees)
   backThreshold?: number; // max torso lean below this (degrees)
   tempoThreshold?: number; // descent duration at least this (ms)
 
   /**
+   * Form rule thresholds (Bicep Curl)
+   */
+  rangeThreshold?: number; // min elbow angle must be <= this (degrees)
+  extensionThreshold?: number; // max elbow angle must be >= this (degrees)
+  elbowDriftThreshold?: number; // max elbow drift normalized by torso length (ratio)
+  swingThreshold?: number; // max body sway normalized by torso length (ratio)
+
+  /**
    * Optional active rules to evaluate on rep completion
    */
   rules?: Rule[];
+
+  /**
+   * Optional factory for exercise-specific metrics collector
+   */
+  createMetricsCollector?: () => RepMetricsCollector;
+
+  /**
+   * Optional direct metrics computation hook
+   */
+  computeRepMetrics?: (common: CommonRepMetrics) => RepMetrics;
+}
+
+export interface RepMetricsCollector {
+  onFrame?: (
+    angle: number,
+    timestampMs: number,
+    state: RepState,
+    frameMetrics?: FrameMetricsInput
+  ) => void;
+  onAboveUpThreshold?: (
+    angle: number,
+    timestampMs: number,
+    frameMetrics?: FrameMetricsInput
+  ) => void;
+  onRepStart?: (
+    angle: number,
+    timestampMs: number,
+    frameMetrics?: FrameMetricsInput
+  ) => void;
+  onRepCompleted?: (
+    commonMetrics: CommonRepMetrics,
+    frameMetrics?: FrameMetricsInput
+  ) => RepMetrics;
+  resetCurrentRep?: () => void;
+  reset?: () => void;
 }
 
 export interface RepResult {
@@ -110,4 +170,17 @@ export interface StateMachineUpdateResult {
 
 export interface FrameMetricsInput {
   torsoLean?: number;
+  worldLandmarks?: Landmark3D[];
+  landmarks?: Landmark3D[];
+  side?: 'left' | 'right';
+  armLandmarks?: {
+    shoulder: Landmark3D;
+    elbow: Landmark3D;
+    wrist: Landmark3D;
+  };
+  shoulder?: Landmark3D;
+  elbow?: Landmark3D;
+  wrist?: Landmark3D;
+  torsoLength?: number;
+  [key: string]: unknown;
 }

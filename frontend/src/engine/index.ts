@@ -5,3 +5,5 @@ export * from './stateMachine';
 export * from './rules';
 export * from './scoring';
 export * from './exercises/squat';
+export * from './exercises/bicepCurl';
+export * from './exercises/index';

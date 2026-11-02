@@ -21,7 +21,7 @@ export function createDepthRule(config: ExerciseConfig): Rule {
     check: (metrics: RepMetrics): FormViolation | null => {
       const threshold = config.depthThreshold ?? 100;
       // Violation if the user failed to go below the threshold
-      if (metrics.minKneeAngle >= threshold) {
+      if (metrics.minKneeAngle !== undefined && metrics.minKneeAngle >= threshold) {
         return {
           ruleId: 'depth',
           severity: 'high',
@@ -50,7 +50,7 @@ export function createBackRule(config: ExerciseConfig): Rule {
     check: (metrics: RepMetrics): FormViolation | null => {
       const threshold = config.backThreshold ?? 45;
       // Violation if torso lean is too high
-      if (metrics.maxTorsoLean >= threshold) {
+      if (metrics.maxTorsoLean !== undefined && metrics.maxTorsoLean >= threshold) {
         return {
           ruleId: 'back',
           severity: 'high',

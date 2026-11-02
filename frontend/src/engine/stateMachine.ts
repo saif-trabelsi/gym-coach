@@ -1,7 +1,9 @@
 import type {
+  CommonRepMetrics,
   ExerciseConfig,
   FrameMetricsInput,
   RepMetrics,
+  RepMetricsCollector,
   RepResult,
   RepState,
   StateMachineUpdateResult,
@@ -10,6 +12,7 @@ import { evaluateRep } from './scoring';
 
 export class RepStateMachine {
   private config: ExerciseConfig;
+  private collector?: RepMetricsCollector;
   private state: RepState = 'idle';
   private repStartTimeMs: number | null = null;
 
@@ -29,6 +32,18 @@ export class RepStateMachine {
 
   constructor(config: ExerciseConfig) {
     this.config = config;
+    if (config.createMetricsCollector) {
+      this.collector = config.createMetricsCollector();
+    }
+  }
+
+  /**
+   * Switches the active exercise configuration and resets rep counters and internal state.
+   */
+  public setConfig(config: ExerciseConfig): void {
+    this.config = config;
+    this.collector = config.createMetricsCollector ? config.createMetricsCollector() : undefined;
+    this.reset();
   }
 
   /**
@@ -49,13 +64,14 @@ export class RepStateMachine {
     let completedRep: RepResult | null = null;
 
     if (isHighToLow) {
-      // Squat: Starts at high angle (> upThreshold), descends to low (< downThreshold)
+      // Squat / Bicep Curl: Starts at high angle (> upThreshold), descends to low (< downThreshold)
       const up = this.config.upThreshold;
       const down = this.config.downThreshold;
 
-      // Keep track of the last moment the knee angle was above the up threshold
+      // Keep track of the last moment the joint angle was above the up threshold
       if (angle >= up) {
         this.lastAboveUpTimestampMs = timestampMs;
+        this.collector?.onAboveUpThreshold?.(angle, timestampMs, frameMetrics);
       }
 
       // Track frame-level metrics and inflection point during an active rep
@@ -71,6 +87,8 @@ export class RepStateMachine {
         if (frameMetrics?.torsoLean !== undefined) {
           this.maxTorsoLean = Math.max(this.maxTorsoLean, frameMetrics.torsoLean);
         }
+
+        this.collector?.onFrame?.(angle, timestampMs, this.state, frameMetrics);
       }
 
       switch (this.state) {
@@ -79,7 +97,7 @@ export class RepStateMachine {
           if (angle < up - hysteresis) {
             this.state = 'descending';
             this.repStartTimeMs = timestampMs;
-            // Descent starts at the last moment knee angle was above the up threshold
+            // Descent starts at the last moment joint angle was above the up threshold
             this.descentStartMs = this.lastAboveUpTimestampMs ?? timestampMs;
             this.minAngle = angle;
             this.maxAngle = angle;
@@ -87,6 +105,8 @@ export class RepStateMachine {
             this.bottomMs = timestampMs;
             this.maxTorsoLean = frameMetrics?.torsoLean ?? 0;
             this.reachedTarget = false;
+
+            this.collector?.onRepStart?.(angle, timestampMs, frameMetrics);
           }
           break;
 
@@ -119,16 +139,32 @@ export class RepStateMachine {
               const bottom = this.bottomMs ?? timestampMs;
               const descentDurationMs = Math.max(0, bottom - descentStart);
 
-              const metrics: RepMetrics = {
-                minKneeAngle: this.minKneeAngle,
-                maxTorsoLean: this.maxTorsoLean,
-                descentDurationMs,
-                descentStartMs: descentStart,
-                bottomMs: bottom,
+              const commonMetrics: CommonRepMetrics = {
                 minAngle: this.minAngle,
                 maxAngle: this.maxAngle,
                 durationMs,
+                descentDurationMs,
+                descentStartMs: descentStart,
+                bottomMs: bottom,
               };
+
+              let metrics: RepMetrics;
+              if (this.collector?.onRepCompleted) {
+                metrics = this.collector.onRepCompleted(commonMetrics, frameMetrics);
+              } else if (this.config.computeRepMetrics) {
+                metrics = this.config.computeRepMetrics(commonMetrics);
+              } else {
+                metrics = {
+                  minKneeAngle: this.minKneeAngle,
+                  maxTorsoLean: this.maxTorsoLean,
+                  descentDurationMs,
+                  descentStartMs: descentStart,
+                  bottomMs: bottom,
+                  minAngle: this.minAngle,
+                  maxAngle: this.maxAngle,
+                  durationMs,
+                };
+              }
 
               const { violations, score } = evaluateRep(metrics, this.config.rules ?? []);
 
@@ -147,6 +183,7 @@ export class RepStateMachine {
             this.resetCurrentRep();
             this.state = 'idle';
             this.lastAboveUpTimestampMs = timestampMs;
+            this.collector?.onAboveUpThreshold?.(angle, timestampMs, frameMetrics);
           } else if (angle <= down) {
             // Dropped back down to bottom before reaching top
             this.state = 'bottom';
@@ -174,6 +211,8 @@ export class RepStateMachine {
         if (frameMetrics?.torsoLean !== undefined) {
           this.maxTorsoLean = Math.max(this.maxTorsoLean, frameMetrics.torsoLean);
         }
+
+        this.collector?.onFrame?.(angle, timestampMs, this.state, frameMetrics);
       }
 
       switch (this.state) {
@@ -190,6 +229,8 @@ export class RepStateMachine {
             this.bottomMs = timestampMs;
             this.maxTorsoLean = frameMetrics?.torsoLean ?? 0;
             this.reachedTarget = false;
+
+            this.collector?.onRepStart?.(angle, timestampMs, frameMetrics);
           }
           break;
 
@@ -221,16 +262,32 @@ export class RepStateMachine {
             const descentDurationMs = Math.max(0, bottom - descentStart);
 
             if (this.reachedTarget && durationMs >= this.config.minDurationMs) {
-              const metrics: RepMetrics = {
-                minKneeAngle: this.minKneeAngle,
-                maxTorsoLean: this.maxTorsoLean,
-                descentDurationMs,
-                descentStartMs: descentStart,
-                bottomMs: bottom,
+              const commonMetrics: CommonRepMetrics = {
                 minAngle: this.minAngle,
                 maxAngle: this.maxAngle,
                 durationMs,
+                descentDurationMs,
+                descentStartMs: descentStart,
+                bottomMs: bottom,
               };
+
+              let metrics: RepMetrics;
+              if (this.collector?.onRepCompleted) {
+                metrics = this.collector.onRepCompleted(commonMetrics, frameMetrics);
+              } else if (this.config.computeRepMetrics) {
+                metrics = this.config.computeRepMetrics(commonMetrics);
+              } else {
+                metrics = {
+                  minKneeAngle: this.minKneeAngle,
+                  maxTorsoLean: this.maxTorsoLean,
+                  descentDurationMs,
+                  descentStartMs: descentStart,
+                  bottomMs: bottom,
+                  minAngle: this.minAngle,
+                  maxAngle: this.maxAngle,
+                  durationMs,
+                };
+              }
 
               const { violations, score } = evaluateRep(metrics, this.config.rules ?? []);
 
@@ -273,6 +330,7 @@ export class RepStateMachine {
     this.maxTargetAngle = -Infinity;
     this.maxTorsoLean = 0;
     this.reachedTarget = false;
+    this.collector?.resetCurrentRep?.();
   }
 
   public getState(): RepState {
@@ -292,6 +350,7 @@ export class RepStateMachine {
     this.reps = [];
     this.lastAboveUpTimestampMs = null;
     this.lastBelowDownTimestampMs = null;
+    this.collector?.reset?.();
     this.resetCurrentRep();
   }
 }
