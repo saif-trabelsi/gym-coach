@@ -36,6 +36,10 @@ import {
   ValidationError,
   ServerError,
 } from './api/client';
+import { parseHash, type ParsedRoute } from './analytics/navigation';
+import { HistoryView } from './ui/HistoryView';
+import { SessionDetailView } from './ui/SessionDetailView';
+import { ProgressView } from './ui/ProgressView';
 
 type InputMode = 'webcam' | 'video';
 export type ExerciseType = 'squat' | 'bicepCurl';
@@ -43,6 +47,20 @@ export type ExerciseType = 'squat' | 'bicepCurl';
 export default function App() {
   const [mode, setMode] = useState<InputMode>('webcam');
   const [exercise, setExercise] = useState<ExerciseType>('squat');
+
+  // Hash Navigation State (#coach default, #history, #history/<id>, #progress)
+  const [currentRoute, setCurrentRoute] = useState<ParsedRoute>(() =>
+    parseHash(typeof window !== 'undefined' ? window.location.hash : '')
+  );
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentRoute(parseHash(window.location.hash));
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const [detector, setDetector] = useState<PoseDetector | null>(null);
   const [delegate, setDelegate] = useState<'GPU' | 'CPU' | null>(null);
   const [isModelLoading, setIsModelLoading] = useState<boolean>(true);
@@ -347,6 +365,11 @@ export default function App() {
     const processFrame = () => {
       if (!isRunning) return;
 
+      if (currentRoute.view !== 'coach') {
+        rafIdRef.current = requestAnimationFrame(processFrame);
+        return;
+      }
+
       if (
         activeVideo &&
         activeVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
@@ -617,161 +640,183 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <span className="text-lg font-black text-white">🏋️</span>
+              <span className="text-lg font-black text-white">⚡</span>
             </div>
             <div>
               <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
                 AI Gym Coach
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                  {exercise === 'squat' ? 'Squat View' : 'Bicep Curl View'}
-                </span>
+                {currentRoute.view === 'coach' && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
+                    {exercise === 'squat' ? 'Squat' : 'Bicep Curl'}
+                  </span>
+                )}
               </h1>
               <p className="text-xs text-slate-400">
-                Form Rules • Voice Feedback • Multilingual (EN/FR/AR)
+                Live Coaching • Workout History • Fatigue Curve
               </p>
             </div>
           </div>
 
-          {/* Exercise View Selector */}
-          <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-indigo-500/30 shadow-inner">
-            <button
-              onClick={() => handleExerciseChange('squat')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                exercise === 'squat'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+          {/* Main Navigation Tabs */}
+          <nav className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
+            <a
+              href="#coach"
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentRoute.view === 'coach'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span>🏋️</span> Squat
-            </button>
-            <button
-              onClick={() => handleExerciseChange('bicepCurl')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                exercise === 'bicepCurl'
-                  ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>💪</span> Bicep Curl
-            </button>
-          </div>
-
-          {/* Mode Switcher */}
-          <div className="flex items-center bg-slate-800/80 p-1 rounded-xl border border-slate-700/70">
-            <button
-              onClick={() => handleModeChange('webcam')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                mode === 'webcam'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              📹 Webcam
-            </button>
-            <button
-              onClick={() => handleModeChange('video')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                mode === 'video'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              📁 Video File
-            </button>
-          </div>
-
-          {/* Audio & Language Controls & Reset */}
-          <div className="flex items-center gap-2.5">
-            {/* Language Selector */}
-            <select
-              value={language}
-              onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
-              aria-label="Language selector"
-              className="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
-            >
-              <option value="en-US">🇺🇸 English</option>
-              <option value="fr-FR">🇫🇷 Français</option>
-              <option value="ar">🇸🇦 العربية</option>
-            </select>
-
-            {/* Mute Toggle */}
-            <button
-              onClick={handleToggleMute}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
-                isMuted
-                  ? 'bg-rose-950/70 text-rose-300 border-rose-700/50 hover:bg-rose-900/60'
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-              }`}
-              title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
-            >
-              {isMuted ? (
-                <>
-                  <svg className="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                  </svg>
-                  Muted
-                </>
-              ) : (
-                <>
-                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                  </svg>
-                  Voice
-                </>
+              <span>🎯</span> Coach
+              {workoutTotals.totalReps > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-slate-950">
+                  {workoutTotals.totalReps} in progress
+                </span>
               )}
-            </button>
-
-            <FpsCounter
-              fps={fps}
-              delegate={delegate}
-              inferenceTimeMs={fps > 0 ? inferenceTimeMs : undefined}
-            />
-
-            {/* Pose status pill */}
-            <div
-              className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center gap-1.5 ${
-                poseDetected
-                  ? 'bg-cyan-950/70 text-cyan-300 border-cyan-500/30'
-                  : 'bg-slate-900 text-slate-500 border-slate-800'
+            </a>
+            <a
+              href="#history"
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentRoute.view === 'history'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  poseDetected ? 'bg-cyan-400' : 'bg-slate-600'
-                }`}
-              />
-              {poseDetected ? 'Pose 3D' : 'No pose'}
-            </div>
-
-            <button
-              onClick={handleReset}
-              title="Reset rep counter and state machine"
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5 active:scale-95 shadow-sm"
+              <span>📜</span> History
+            </a>
+            <a
+              href="#progress"
+              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                currentRoute.view === 'progress'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
             >
-              <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              <span>📈</span> Progress
+            </a>
+          </nav>
+
+          {currentRoute.view === 'coach' && (
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Exercise View Selector */}
+              <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-indigo-500/30 shadow-inner">
+                <button
+                  onClick={() => handleExerciseChange('squat')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    exercise === 'squat'
+                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>🏋️</span> Squat
+                </button>
+                <button
+                  onClick={() => handleExerciseChange('bicepCurl')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                    exercise === 'bicepCurl'
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>💪</span> Curl
+                </button>
+              </div>
+
+              {/* Mode Switcher */}
+              <div className="flex items-center bg-slate-800/80 p-1 rounded-xl border border-slate-700/70">
+                <button
+                  onClick={() => handleModeChange('webcam')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    mode === 'webcam'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  📹 Webcam
+                </button>
+                <button
+                  onClick={() => handleModeChange('video')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    mode === 'video'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  📁 Video
+                </button>
+              </div>
+
+              {/* Audio & Language Controls & Reset */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={language}
+                  onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+                  aria-label="Language selector"
+                  className="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-2 py-1 text-xs font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
+                >
+                  <option value="en-US">🇺🇸 EN</option>
+                  <option value="fr-FR">🇫🇷 FR</option>
+                  <option value="ar">🇸🇦 AR</option>
+                </select>
+
+                <button
+                  onClick={handleToggleMute}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1 ${
+                    isMuted
+                      ? 'bg-rose-950/70 text-rose-300 border-rose-700/50 hover:bg-rose-900/60'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                  title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
+                >
+                  {isMuted ? 'Muted' : 'Voice'}
+                </button>
+
+                <FpsCounter
+                  fps={fps}
+                  delegate={delegate}
+                  inferenceTimeMs={fps > 0 ? inferenceTimeMs : undefined}
                 />
-              </svg>
-              Reset
-            </button>
-          </div>
+
+                {/* Pose status pill */}
+                <div
+                  className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center gap-1.5 ${
+                    poseDetected
+                      ? 'bg-cyan-950/70 text-cyan-300 border-cyan-500/30'
+                      : 'bg-slate-900 text-slate-500 border-slate-800'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      poseDetected ? 'bg-cyan-400' : 'bg-slate-600'
+                    }`}
+                  />
+                  {poseDetected ? 'Pose 3D' : 'No pose'}
+                </div>
+
+                <button
+                  onClick={handleReset}
+                  title="Reset rep counter and state machine"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
-        {/* Voice fallback notification */}
-        {voiceNotice && (
-          <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
-            <span>ℹ️</span>
-            <span>{voiceNotice}</span>
-          </div>
-        )}
+        {currentRoute.view === 'coach' && (
+          <>
+            {/* Voice fallback notification */}
+            {voiceNotice && (
+              <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
+                <span>ℹ️</span>
+                <span>{voiceNotice}</span>
+              </div>
+            )}
 
         {/* Model initialization alert banner */}
         {isModelLoading && (
@@ -1110,7 +1155,38 @@ export default function App() {
             height={200}
           />
         </div>
-      </main>
-    </div>
-  );
+      </>
+    )}
+
+    {currentRoute.view === 'history' &&
+      (currentRoute.id ? (
+        <SessionDetailView
+          sessionId={currentRoute.id}
+          onBack={() => {
+            window.location.hash = '#history';
+          }}
+        />
+      ) : (
+        <HistoryView
+          backendOnline={backendOnline}
+          onSelectSession={(id) => {
+            window.location.hash = `#history/${id}`;
+          }}
+          onGoToCoach={() => {
+            window.location.hash = '#coach';
+          }}
+        />
+      ))}
+
+    {currentRoute.view === 'progress' && (
+      <ProgressView
+        backendOnline={backendOnline}
+        onGoToCoach={() => {
+          window.location.hash = '#coach';
+        }}
+      />
+    )}
+  </main>
+</div>
+);
 }

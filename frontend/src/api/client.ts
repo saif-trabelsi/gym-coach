@@ -41,6 +41,29 @@ export class ServerError extends ApiError {
   }
 }
 
+export class NotFoundError extends ApiError {
+  constructor(message = 'Resource not found (404)') {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
+export interface SessionListItem {
+  id: number;
+  started_at: string;
+  ended_at: string;
+  exercises: string[];
+  total_reps: number;
+  average_score: number | null;
+}
+
+export interface ProgressRow {
+  date: string;
+  exercise: string;
+  reps: number;
+  average_score: number;
+}
+
 export interface SessionRead {
   id: number;
   started_at: string;
@@ -177,3 +200,119 @@ export async function checkHealth(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Lists all recorded sessions, newest first.
+ */
+export async function listSessions(): Promise<SessionListItem[]> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(`${baseUrl}/sessions`, {
+    method: 'GET',
+  });
+
+  if (response.ok) {
+    return response.json();
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch sessions (${response.status})`);
+}
+
+/**
+ * Retrieves full details of a specific session by id.
+ */
+export async function getSession(id: number): Promise<SessionRead> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(`${baseUrl}/sessions/${id}`, {
+    method: 'GET',
+  });
+
+  if (response.status === 200) {
+    return response.json();
+  }
+
+  if (response.status === 404) {
+    throw new NotFoundError(`Session with id ${id} not found`);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch session (${response.status})`);
+}
+
+/**
+ * Deletes a session by id (cascades sets and reps).
+ */
+export async function deleteSession(id: number): Promise<void> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(`${baseUrl}/sessions/${id}`, {
+    method: 'DELETE',
+  });
+
+  if (response.status === 204) {
+    return;
+  }
+
+  if (response.status === 404) {
+    throw new NotFoundError(`Session with id ${id} not found`);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to delete session (${response.status})`);
+}
+
+/**
+ * Retrieves progress statistics aggregated by calendar day.
+ */
+export async function getProgress(params?: {
+  exercise?: string;
+  tzOffsetMinutes?: number;
+}): Promise<ProgressRow[]> {
+  const baseUrl = getApiUrl();
+  const query = new URLSearchParams();
+  if (params?.exercise) {
+    query.set('exercise', params.exercise);
+  }
+  if (typeof params?.tzOffsetMinutes === 'number') {
+    query.set('tz_offset_minutes', params.tzOffsetMinutes.toString());
+  }
+
+  const queryString = query.toString();
+  const url = `${baseUrl}/stats/progress${queryString ? `?${queryString}` : ''}`;
+
+  const response = await fetchWithTimeout(url, {
+    method: 'GET',
+  });
+
+  if (response.status === 200) {
+    return response.json();
+  }
+
+  if (response.status === 422) {
+    let errorDetail: unknown = null;
+    let readableMessage = 'Validation error';
+    try {
+      const data = await response.json();
+      errorDetail = data.detail;
+      readableMessage = formatValidationDetail(data.detail);
+    } catch {
+      readableMessage = 'Validation failed';
+    }
+    throw new ValidationError(readableMessage, errorDetail);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch progress (${response.status})`);
+}
+
