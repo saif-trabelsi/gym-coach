@@ -26,6 +26,16 @@ import {
   type FeedbackResult,
   type SupportedLanguage,
 } from './feedback';
+import { WorkoutPanel, type SaveErrorState, type SaveSuccessState } from './ui/WorkoutPanel';
+import { WorkoutRecorder, type RecordedSet, type RecordedRep } from './recording/workoutRecorder';
+import {
+  createSession,
+  checkHealth,
+  NetworkError,
+  TimeoutError,
+  ValidationError,
+  ServerError,
+} from './api/client';
 
 type InputMode = 'webcam' | 'video';
 export type ExerciseType = 'squat' | 'bicepCurl';
@@ -83,6 +93,29 @@ export default function App() {
   const highlightJointsRef = useRef<Set<number>>(new Set());
   const highlightExpiryRef = useRef<number>(0);
 
+  // Workout Recording state & persistent recorder
+  const workoutRecorderRef = useRef<WorkoutRecorder>(new WorkoutRecorder());
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [currentRecordedSet, setCurrentRecordedSet] = useState<{
+    exercise: string;
+    reps: RecordedRep[];
+    averageScore: number;
+  } | null>(null);
+  const [finishedRecordedSets, setFinishedRecordedSets] = useState<RecordedSet[]>([]);
+  const [workoutTotals, setWorkoutTotals] = useState<{ totalReps: number; averageScore: number }>({
+    totalReps: 0,
+    averageScore: 0,
+  });
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<SaveErrorState | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<SaveSuccessState | null>(null);
+
+  const syncWorkoutState = useCallback(() => {
+    setCurrentRecordedSet(workoutRecorderRef.current.getCurrentSet());
+    setFinishedRecordedSets(workoutRecorderRef.current.getFinishedSets());
+    setWorkoutTotals(workoutRecorderRef.current.getTotals());
+  }, []);
+
   const overlayRef = useRef<OverlayHandle | null>(null);
   const cameraRef = useRef<CameraHandle | null>(null);
   const videoInputRef = useRef<VideoFileInputHandle | null>(null);
@@ -112,8 +145,11 @@ export default function App() {
     voiceRef.current.setLanguage(newLang);
   };
 
-  // Reset function
+  // Reset function: ends the current set (keeping its reps in the workout) and resets the live counter
   const handleReset = useCallback(() => {
+    workoutRecorderRef.current.endSet();
+    syncWorkoutState();
+
     stateMachineRef.current.reset();
     filterRef.current.reset();
     feedbackManagerRef.current.reset();
@@ -130,14 +166,117 @@ export default function App() {
     setLatestFeedback(null);
     setLastRep(null);
     setRepsHistory([]);
-  }, []);
+  }, [syncWorkoutState]);
 
-  // Handle exercise view change
+  // Handle exercise view change: switching exercise automatically ends the current set
   const handleExerciseChange = (newExercise: ExerciseType) => {
     if (newExercise === exercise) return;
+    workoutRecorderRef.current.endSet();
+    syncWorkoutState();
     setExercise(newExercise);
     stateMachineRef.current.setConfig(newExercise === 'squat' ? squatConfig : bicepCurlConfig);
     handleReset();
+  };
+
+  // Check backend health on load and every 15s
+  useEffect(() => {
+    let isMounted = true;
+    const ping = async () => {
+      const isOk = await checkHealth();
+      if (isMounted) {
+        setBackendOnline(isOk);
+      }
+    };
+    ping();
+    const interval = setInterval(ping, 15000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Browser warning (beforeunload) if there are unsaved reps
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (workoutTotals.totalReps > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [workoutTotals.totalReps]);
+
+  // Workout Panel actions
+  const handleEndSet = () => {
+    workoutRecorderRef.current.endSet();
+    syncWorkoutState();
+  };
+
+  const handleFinishAndSave = async () => {
+    if (isSaving || workoutTotals.totalReps === 0) return;
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    try {
+      const payload = workoutRecorderRef.current.buildPayload();
+      if (!payload) {
+        setIsSaving(false);
+        return;
+      }
+
+      await createSession(payload);
+
+      setSaveSuccess({
+        setsCount: payload.sets.length,
+        totalReps: workoutTotals.totalReps,
+        averageScore: workoutTotals.averageScore,
+      });
+
+      workoutRecorderRef.current.reset();
+      syncWorkoutState();
+    } catch (err: unknown) {
+      if (err instanceof NetworkError || err instanceof TimeoutError) {
+        setSaveError({
+          type: 'network',
+          message: err.message,
+        });
+      } else if (err instanceof ValidationError) {
+        setSaveError({
+          type: 'validation',
+          message: err.message,
+        });
+      } else if (err instanceof ServerError) {
+        setSaveError({
+          type: 'server',
+          message: err.message,
+        });
+      } else {
+        setSaveError({
+          type: 'server',
+          message: err instanceof Error ? err.message : 'Unknown save error',
+        });
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRetrySave = () => {
+    handleFinishAndSave();
+  };
+
+  const handleDiscardWorkout = () => {
+    workoutRecorderRef.current.reset();
+    setSaveError(null);
+    syncWorkoutState();
+  };
+
+  const handleDismissSuccess = () => {
+    setSaveSuccess(null);
   };
 
   // Initialize MediaPipe PoseLandmarker
@@ -266,6 +405,10 @@ export default function App() {
                 setLastRep(rep);
                 setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
 
+                // Feed completed rep to workout recorder
+                workoutRecorderRef.current.addRep(exercise, rep);
+                syncWorkoutState();
+
                 const feedback = feedbackManagerRef.current.processRep(
                   rep,
                   timestamp,
@@ -337,6 +480,10 @@ export default function App() {
                 const rep = smResult.completedRep;
                 setLastRep(rep);
                 setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
+
+                // Feed completed rep to workout recorder
+                workoutRecorderRef.current.addRep(exercise, rep);
+                syncWorkoutState();
 
                 const feedback = feedbackManagerRef.current.processRep(
                   rep,
@@ -814,6 +961,22 @@ export default function App() {
             {exercise === 'squat' ? 'Knee angle signal (160°/120°)' : 'Elbow angle signal (140°/70°)'}
           </span>
         </div>
+
+        {/* Workout Session Recording & Management Panel */}
+        <WorkoutPanel
+          backendOnline={backendOnline}
+          currentSet={currentRecordedSet}
+          finishedSets={finishedRecordedSets}
+          totals={workoutTotals}
+          isSaving={isSaving}
+          saveError={saveError}
+          saveSuccess={saveSuccess}
+          onEndSet={handleEndSet}
+          onFinishAndSave={handleFinishAndSave}
+          onRetrySave={handleRetrySave}
+          onDiscard={handleDiscardWorkout}
+          onDismissSuccess={handleDismissSuccess}
+        />
 
         {/* Reps History Table (Last 10 Reps with score & violations) */}
         {repsHistory.length > 0 && (
