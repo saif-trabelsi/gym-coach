@@ -136,3 +136,16 @@ class ProgressStatRead(BaseModel):
     exercise: str
     reps: int
     average_score: float
+
+
+class ReportRead(BaseModel):
+    session_id: int
+    language: str
+    created_at: UTCDateTime
+    provider: str
+    model: str
+    is_fallback: bool
+    fallback_reason: Optional[str] = None
+    stats: Dict[str, Any]
+    narrative: Dict[str, Any]
+

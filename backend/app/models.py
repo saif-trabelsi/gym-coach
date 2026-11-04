@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from sqlalchemy import Column, DateTime, JSON, TypeDecorator
+from sqlalchemy import Column, DateTime, JSON, TypeDecorator, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -39,6 +39,13 @@ class Session(SQLModel, table=True):
             "passive_deletes": True,
         },
     )
+    reports: List["SessionReport"] = Relationship(
+        back_populates="session",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+        },
+    )
 
 
 class WorkoutSet(SQLModel, table=True):
@@ -69,3 +76,23 @@ class Rep(SQLModel, table=True):
     timestamp: int
 
     workout_set: Optional[WorkoutSet] = Relationship(back_populates="reps")
+
+
+class SessionReport(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("session_id", "language", name="uq_session_report_session_language"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(foreign_key="session.id", ondelete="CASCADE", nullable=False)
+    language: str = Field(nullable=False)
+    provider: str = Field(nullable=False)
+    model: str = Field(nullable=False)
+    stats: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    narrative: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    is_fallback: bool = Field(default=False, nullable=False)
+    fallback_reason: Optional[str] = Field(default=None, nullable=True)
+    created_at: datetime = Field(sa_column=Column(UTCDateTime, nullable=False))
+
+    session: Optional[Session] = Relationship(back_populates="reports")
+
