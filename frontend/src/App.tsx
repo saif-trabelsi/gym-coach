@@ -27,7 +27,13 @@ import {
   type SupportedLanguage,
 } from './feedback';
 import { WorkoutPanel, type SaveErrorState, type SaveSuccessState } from './ui/WorkoutPanel';
-import { WorkoutRecorder, type RecordedSet, type RecordedRep } from './recording/workoutRecorder';
+import {
+  WorkoutRecorder,
+  type RecordedSet,
+  type RecordedRep,
+  type RepReplayPayload,
+} from './recording/workoutRecorder';
+import { FrameBuffer, getHighlightJoints } from './recording/frameBuffer';
 import {
   createSession,
   checkHealth,
@@ -113,6 +119,7 @@ export default function App() {
 
   // Workout Recording state & persistent recorder
   const workoutRecorderRef = useRef<WorkoutRecorder>(new WorkoutRecorder());
+  const frameBufferRef = useRef<FrameBuffer>(new FrameBuffer());
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [currentRecordedSet, setCurrentRecordedSet] = useState<{
     exercise: string;
@@ -386,6 +393,9 @@ export default function App() {
         setInferenceTimeMs(endTime - startTime);
 
         if (result && result.landmarks && result.worldLandmarks) {
+          // Push detected frame into ring buffer for potential worst-rep replay
+          frameBufferRef.current.push(timestamp, result.landmarks);
+
           // Check if joint highlights are active (1.5s after faulty rep)
           const isHighlightActive = timestamp < highlightExpiryRef.current;
           overlayRef.current?.draw(
@@ -428,8 +438,28 @@ export default function App() {
                 setLastRep(rep);
                 setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
 
+                const vWidth = activeVideo?.videoWidth || 640;
+                const vHeight = activeVideo?.videoHeight || 480;
+                const aspect = vHeight > 0 ? Math.round((vWidth / vHeight) * 100) / 100 : 1.33;
+
+                const snapFrames = frameBufferRef.current.snapshot(timestamp, rep.durationMs, 300);
+                const highlightJoints = getHighlightJoints(rep.violations, legSelection.side);
+
+                let replayPayload: RepReplayPayload | null = null;
+                if (snapFrames && snapFrames.length >= 2) {
+                  replayPayload = {
+                    version: 1,
+                    fps: 15,
+                    aspect: Math.max(0.2, Math.min(5.0, aspect)),
+                    mirrored: false,
+                    frames: snapFrames,
+                    highlight: highlightJoints,
+                    violations: rep.violations.map((v) => v.ruleId),
+                  };
+                }
+
                 // Feed completed rep to workout recorder
-                workoutRecorderRef.current.addRep(exercise, rep);
+                workoutRecorderRef.current.addRep(exercise, rep, replayPayload);
                 syncWorkoutState();
 
                 const feedback = feedbackManagerRef.current.processRep(
@@ -445,19 +475,7 @@ export default function App() {
 
                 // Highlight faulty joints
                 if (rep.violations && rep.violations.length > 0) {
-                  const joints = new Set<number>();
-                  for (const v of rep.violations) {
-                    if (v.ruleId === 'depth') {
-                      joints.add(25); // Left knee
-                      joints.add(26); // Right knee
-                    } else if (v.ruleId === 'back') {
-                      joints.add(11); // Left shoulder
-                      joints.add(12); // Right shoulder
-                      joints.add(23); // Left hip
-                      joints.add(24); // Right hip
-                    }
-                  }
-                  highlightJointsRef.current = joints;
+                  highlightJointsRef.current = new Set(highlightJoints);
                   highlightExpiryRef.current = timestamp + 1500;
                 } else {
                   highlightJointsRef.current.clear();
@@ -504,8 +522,28 @@ export default function App() {
                 setLastRep(rep);
                 setRepsHistory((prev) => [rep, ...prev].slice(0, 10));
 
+                const vWidth = activeVideo?.videoWidth || 640;
+                const vHeight = activeVideo?.videoHeight || 480;
+                const aspect = vHeight > 0 ? Math.round((vWidth / vHeight) * 100) / 100 : 1.33;
+
+                const snapFrames = frameBufferRef.current.snapshot(timestamp, rep.durationMs, 300);
+                const highlightJoints = getHighlightJoints(rep.violations, armSelection.side);
+
+                let replayPayload: RepReplayPayload | null = null;
+                if (snapFrames && snapFrames.length >= 2) {
+                  replayPayload = {
+                    version: 1,
+                    fps: 15,
+                    aspect: Math.max(0.2, Math.min(5.0, aspect)),
+                    mirrored: false,
+                    frames: snapFrames,
+                    highlight: highlightJoints,
+                    violations: rep.violations.map((v) => v.ruleId),
+                  };
+                }
+
                 // Feed completed rep to workout recorder
-                workoutRecorderRef.current.addRep(exercise, rep);
+                workoutRecorderRef.current.addRep(exercise, rep, replayPayload);
                 syncWorkoutState();
 
                 const feedback = feedbackManagerRef.current.processRep(
@@ -521,21 +559,7 @@ export default function App() {
 
                 // Highlight faulty joints for bicep curl
                 if (rep.violations && rep.violations.length > 0) {
-                  const joints = new Set<number>();
-                  for (const v of rep.violations) {
-                    if (v.ruleId === 'range' || v.ruleId === 'extension' || v.ruleId === 'elbowDrift') {
-                      joints.add(13); // Left elbow
-                      joints.add(14); // Right elbow
-                      joints.add(15); // Left wrist
-                      joints.add(16); // Right wrist
-                    } else if (v.ruleId === 'swing') {
-                      joints.add(11); // Left shoulder
-                      joints.add(12); // Right shoulder
-                      joints.add(23); // Left hip
-                      joints.add(24); // Right hip
-                    }
-                  }
-                  highlightJointsRef.current = joints;
+                  highlightJointsRef.current = new Set(highlightJoints);
                   highlightExpiryRef.current = timestamp + 1500;
                 } else {
                   highlightJointsRef.current.clear();

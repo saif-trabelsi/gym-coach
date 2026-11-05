@@ -1,4 +1,6 @@
-import type { SessionPayload } from '../recording/workoutRecorder';
+import type { SessionPayload, RepReplayPayload } from '../recording/workoutRecorder';
+
+export type { RepReplayPayload };
 
 export class ApiError extends Error {
   constructor(message: string) {
@@ -152,6 +154,7 @@ export interface SessionRead {
       metrics: Record<string, unknown>;
       violations: string[];
       timestamp: number;
+      has_replay?: boolean;
     }>;
   }>;
 }

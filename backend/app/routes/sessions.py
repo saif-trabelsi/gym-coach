@@ -4,7 +4,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session as DBSession, select
 
 from app.db import get_session
-from app.models import Rep, Session, WorkoutSet
+from app.models import Rep, RepReplay, Session, WorkoutSet
 from app.schemas import (
     RepRead,
     SessionCreate,
@@ -31,6 +31,7 @@ def format_session_detail(session_obj: Session) -> SessionDetailRead:
                 metrics=r.metrics,
                 violations=r.violations,
                 timestamp=r.timestamp,
+                has_replay=(r.replay is not None),
             )
             for r in reps_sorted
         ]
@@ -85,13 +86,25 @@ def create_session(
                 timestamp=rep_in.timestamp,
             )
             db.add(rep_db)
+            db.flush()
+
+            if rep_in.replay is not None:
+                replay_db = RepReplay(
+                    rep_id=rep_db.id,
+                    data=rep_in.replay.model_dump(),
+                )
+                db.add(replay_db)
 
     db.commit()
 
     statement = (
         select(Session)
         .where(Session.id == session_db.id)
-        .options(selectinload(Session.sets).selectinload(WorkoutSet.reps))
+        .options(
+            selectinload(Session.sets)
+            .selectinload(WorkoutSet.reps)
+            .selectinload(Rep.replay)
+        )
     )
     created_session = db.exec(statement).one()
     return format_session_detail(created_session)
@@ -143,7 +156,11 @@ def get_session_detail(
     statement = (
         select(Session)
         .where(Session.id == session_id)
-        .options(selectinload(Session.sets).selectinload(WorkoutSet.reps))
+        .options(
+            selectinload(Session.sets)
+            .selectinload(WorkoutSet.reps)
+            .selectinload(Rep.replay)
+        )
     )
     session_obj = db.exec(statement).first()
     if not session_obj:
@@ -161,7 +178,11 @@ def delete_session(
     statement = (
         select(Session)
         .where(Session.id == session_id)
-        .options(selectinload(Session.sets).selectinload(WorkoutSet.reps))
+        .options(
+            selectinload(Session.sets)
+            .selectinload(WorkoutSet.reps)
+            .selectinload(Rep.replay)
+        )
     )
     session_obj = db.exec(statement).first()
     if not session_obj:

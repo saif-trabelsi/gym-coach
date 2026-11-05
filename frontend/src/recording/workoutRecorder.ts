@@ -1,5 +1,15 @@
 export type ExerciseType = 'squat' | 'bicepCurl';
 
+export interface RepReplayPayload {
+  version: number;
+  fps: number;
+  aspect: number;
+  mirrored: boolean;
+  frames: Array<Array<[number, number] | null>>;
+  highlight: number[];
+  violations: string[];
+}
+
 export interface RecordedRep {
   index: number;
   score: number;
@@ -7,6 +17,7 @@ export interface RecordedRep {
   metrics: Record<string, unknown>;
   violations: string[];
   timestamp: number;
+  replay?: RepReplayPayload;
 }
 
 export interface RecordedSet {
@@ -69,8 +80,13 @@ export class WorkoutRecorder {
   /**
    * Adds a completed rep to the current workout set.
    * If the exercise differs from the active set, the active set is closed and a new set opens.
+   * Optional replay is kept only for the lowest-score rep in the set (earliest on ties).
    */
-  addRep(exercise: ExerciseType, rep: InputRepData): void {
+  addRep(
+    exercise: ExerciseType,
+    rep: InputRepData,
+    replay?: RepReplayPayload | null
+  ): void {
     if (this.activeSet && this.activeSet.exercise !== exercise) {
       this.endSet();
     }
@@ -108,6 +124,28 @@ export class WorkoutRecorder {
     };
 
     this.activeSet.reps.push(recordedRep);
+
+    // Replay management: per set, keep the replay only for current lowest-score rep (earliest on ties).
+    // Discard others immediately to keep memory strictly bounded.
+    if (replay) {
+      let worstRep = this.activeSet.reps[0];
+      for (let i = 1; i < this.activeSet.reps.length; i++) {
+        if (this.activeSet.reps[i].score < worstRep.score) {
+          worstRep = this.activeSet.reps[i];
+        }
+      }
+
+      if (recordedRep === worstRep) {
+        // Discard replays from any other rep in this set
+        for (const r of this.activeSet.reps) {
+          if (r !== recordedRep) {
+            delete r.replay;
+          }
+        }
+        recordedRep.replay = replay;
+      }
+      // If recordedRep is NOT worstRep, incoming replay is discarded immediately
+    }
   }
 
   /**
@@ -163,13 +201,77 @@ export class WorkoutRecorder {
     return {
       started_at: firstSet.started_at,
       ended_at: this.cachedSessionEndedAt,
-      sets: this.finishedSetsList.map((s) => ({
-        exercise: s.exercise,
-        started_at: s.started_at,
-        ended_at: s.ended_at,
-        reps: [...s.reps],
-      })),
+      sets: this.finishedSetsList.map((s) => {
+        let worstRep: RecordedRep | null = null;
+        for (const r of s.reps) {
+          if (!worstRep || r.score < worstRep.score) {
+            worstRep = r;
+          }
+        }
+
+        const repsPayload = s.reps.map((r) => {
+          const item: Record<string, unknown> = {
+            index: r.index,
+            score: r.score,
+            duration_ms: r.duration_ms,
+            metrics: r.metrics,
+            violations: r.violations,
+            timestamp: r.timestamp,
+          };
+
+          // Attach replay only to the worst rep of each set and only if that rep has at least one violation
+          if (
+            r === worstRep &&
+            worstRep.violations &&
+            worstRep.violations.length > 0 &&
+            worstRep.replay
+          ) {
+            item.replay = worstRep.replay;
+          }
+
+          return item as unknown as RecordedRep;
+        });
+
+        return {
+          exercise: s.exercise,
+          started_at: s.started_at,
+          ended_at: s.ended_at,
+          reps: repsPayload,
+        };
+      }),
     };
+  }
+
+  /**
+   * Returns count of replays held in memory for a given set index.
+   */
+  getSetReplayCount(setIndex: number): number {
+    const allSets = [...this.finishedSetsList];
+    if (this.activeSet) {
+      allSets.push({
+        exercise: this.activeSet.exercise,
+        started_at: '',
+        ended_at: '',
+        reps: this.activeSet.reps,
+      });
+    }
+    const set = allSets[setIndex];
+    if (!set) return 0;
+    return set.reps.filter((r) => r.replay !== undefined && r.replay !== null).length;
+  }
+
+  /**
+   * Returns total count of replays currently held in memory across all sets.
+   */
+  getReplaysCount(): number {
+    let count = 0;
+    for (const s of this.finishedSetsList) {
+      count += s.reps.filter((r) => r.replay !== undefined && r.replay !== null).length;
+    }
+    if (this.activeSet) {
+      count += this.activeSet.reps.filter((r) => r.replay !== undefined && r.replay !== null).length;
+    }
+    return count;
   }
 
   /**

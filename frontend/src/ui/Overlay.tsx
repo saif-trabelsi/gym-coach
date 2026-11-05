@@ -6,6 +6,7 @@ import {
 } from 'react';
 import type { NormalizedLandmark } from '../pose/detector';
 import { POSE_CONNECTIONS, POSE_LANDMARKS } from '../pose/detector';
+export { getHighlightJoints } from '../recording/frameBuffer';
 
 export interface OverlayHandle {
   draw: (

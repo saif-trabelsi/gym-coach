@@ -76,6 +76,32 @@ class Rep(SQLModel, table=True):
     timestamp: int
 
     workout_set: Optional[WorkoutSet] = Relationship(back_populates="reps")
+    replay: Optional["RepReplay"] = Relationship(
+        back_populates="rep",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "passive_deletes": True,
+            "uselist": False,
+        },
+    )
+
+
+class RepReplay(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    rep_id: int = Field(
+        foreign_key="rep.id",
+        ondelete="CASCADE",
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    data: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, nullable=False),
+    )
+
+    rep: Optional[Rep] = Relationship(back_populates="replay")
 
 
 class SessionReport(SQLModel, table=True):
