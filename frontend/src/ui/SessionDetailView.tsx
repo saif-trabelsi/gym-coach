@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -9,9 +9,17 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts';
-import { getSession, type SessionRead, type ReportLanguage, NotFoundError } from '../api/client';
+import {
+  getSession,
+  getReplay,
+  type SessionRead,
+  type RepReplayPayload,
+  type ReportLanguage,
+  NotFoundError,
+} from '../api/client';
 import { setSummary, type FatigueTrend } from '../analytics/fatigue';
 import { ReportCard } from './ReportCard';
+import { ReplayPlayer } from './ReplayPlayer';
 
 interface SessionDetailViewProps {
   sessionId: number;
@@ -43,6 +51,80 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState<boolean>(false);
+
+  // Worst-rep replay state
+  const [activeReplay, setActiveReplay] = useState<{
+    repId: number;
+    repIndex: number;
+    score: number;
+    violations: string[];
+    exercise: string;
+  } | null>(null);
+  const [replayLoading, setReplayLoading] = useState<boolean>(false);
+  const [replayError, setReplayError] = useState<{
+    type: 'not_found' | 'network';
+    message: string;
+  } | null>(null);
+  const [loadedReplayPayload, setLoadedReplayPayload] =
+    useState<RepReplayPayload | null>(null);
+  const replayCacheRef = useRef<Map<number, RepReplayPayload>>(new Map());
+
+  const handleOpenReplay = async (
+    rep: { id: number; index: number; score: number; violations?: string[] },
+    exercise: string
+  ) => {
+    setActiveReplay({
+      repId: rep.id,
+      repIndex: rep.index,
+      score: rep.score,
+      violations: rep.violations || [],
+      exercise,
+    });
+    setReplayError(null);
+
+    const cached = replayCacheRef.current.get(rep.id);
+    if (cached) {
+      setLoadedReplayPayload(cached);
+      setReplayLoading(false);
+      return;
+    }
+
+    setReplayLoading(true);
+    setLoadedReplayPayload(null);
+    try {
+      const data = await getReplay(rep.id);
+      replayCacheRef.current.set(rep.id, data);
+      setLoadedReplayPayload(data);
+    } catch (err: unknown) {
+      if (err instanceof NotFoundError) {
+        setReplayError({
+          type: 'not_found',
+          message: 'Replay unavailable for this rep',
+        });
+      } else {
+        setReplayError({
+          type: 'network',
+          message: 'Backend unreachable. Failed to load replay.',
+        });
+      }
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const handleRetryReplay = () => {
+    if (activeReplay) {
+      handleOpenReplay(
+        {
+          id: activeReplay.repId,
+          index: activeReplay.repIndex,
+          score: activeReplay.score,
+          violations: activeReplay.violations,
+        },
+        activeReplay.exercise
+      );
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -240,6 +322,15 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
             violations: r.violations,
           }));
 
+          const repsWithReplay = wSet.reps.filter((r) => r.has_replay);
+          const worstReplayRep =
+            repsWithReplay.length > 0
+              ? repsWithReplay.reduce(
+                  (worst, cur) => (cur.score < worst.score ? cur : worst),
+                  repsWithReplay[0]
+                )
+              : null;
+
           return (
             <div
               key={wSet.id || setIdx}
@@ -374,6 +465,79 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                 </div>
               </div>
 
+              {/* Worst rep replay button */}
+              {worstReplayRep && (
+                <div className="flex items-center justify-start">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenReplay(worstReplayRep, wSet.exercise)}
+                    className="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900/80 text-rose-200 border border-rose-800/60 rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-1.5"
+                  >
+                    <span>🎬</span>
+                    <span>Replay worst rep</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Inline replay accordion */}
+              {activeReplay && wSet.reps.some((r) => r.id === activeReplay.repId) && (
+                <div className="w-full bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 my-1">
+                  {replayLoading && (
+                    <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
+                      <svg
+                        className="animate-spin h-5 w-5 text-indigo-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      <span>Loading replay...</span>
+                    </div>
+                  )}
+
+                  {replayError && !replayLoading && (
+                    <div className="py-4 flex flex-col items-center gap-2 text-center text-xs">
+                      <span className="text-xl">⚠️</span>
+                      <p className="text-rose-300 font-semibold">
+                        {replayError.message}
+                      </p>
+                      {replayError.type === 'network' && (
+                        <button
+                          type="button"
+                          onClick={handleRetryReplay}
+                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold"
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {loadedReplayPayload && !replayLoading && !replayError && (
+                    <ReplayPlayer
+                      replay={loadedReplayPayload}
+                      repIndex={activeReplay.repIndex}
+                      score={activeReplay.score}
+                      violations={activeReplay.violations}
+                      exercise={activeReplay.exercise}
+                      onClose={() => setActiveReplay(null)}
+                    />
+                  )}
+                </div>
+              )}
+
               {/* Rep Table with Dynamic Metric Columns */}
               <div className="overflow-x-auto border border-slate-800 rounded-xl">
                 <table className="w-full text-left text-xs">
@@ -392,7 +556,22 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                   <tbody className="divide-y divide-slate-800/60 font-mono">
                     {wSet.reps.map((rep) => (
                       <tr key={rep.id || rep.index} className="hover:bg-slate-800/30">
-                        <td className="py-2 px-3 font-semibold text-slate-300">#{rep.index}</td>
+                        <td className="py-2 px-3 font-semibold text-slate-300">
+                          <div className="flex items-center gap-1.5">
+                            <span>#{rep.index}</span>
+                            {rep.has_replay && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenReplay(rep, wSet.exercise)}
+                                title="Replay rep"
+                                aria-label={`Replay rep ${rep.index}`}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-slate-700 hover:border-indigo-500 transition-colors text-[10px] font-sans"
+                              >
+                                ▶
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td className="py-2 px-3">
                           <span
                             className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${

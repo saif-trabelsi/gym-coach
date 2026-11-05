@@ -503,3 +503,32 @@ export async function generateReport(
   throw new ApiError(`Failed to generate report (${response.status})`);
 }
 
+/**
+ * Retrieves skeleton animation replay for a specific rep.
+ * Returns RepReplayPayload or throws NotFoundError if 404.
+ */
+export async function getReplay(repId: number): Promise<RepReplayPayload> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(
+    `${baseUrl}/reps/${repId}/replay`,
+    {
+      method: 'GET',
+    },
+    REQUEST_TIMEOUT_MS
+  );
+
+  if (response.status === 200) {
+    return response.json();
+  }
+
+  if (response.status === 404) {
+    throw new NotFoundError(`Replay for rep ${repId} not found (404)`);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch replay (${response.status})`);
+}
+
