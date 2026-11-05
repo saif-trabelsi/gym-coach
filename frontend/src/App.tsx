@@ -1162,6 +1162,7 @@ export default function App() {
       (currentRoute.id ? (
         <SessionDetailView
           sessionId={currentRoute.id}
+          initialLanguage={language.startsWith('fr') ? 'fr' : language === 'ar' ? 'ar' : 'en'}
           onBack={() => {
             window.location.hash = '#history';
           }}

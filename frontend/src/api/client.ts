@@ -48,6 +48,77 @@ export class NotFoundError extends ApiError {
   }
 }
 
+export class RateLimitError extends ApiError {
+  public retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds = 10, message = 'Rate limit exceeded') {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+export type ReportLanguage = 'en' | 'fr' | 'ar';
+
+export type FallbackReason =
+  | 'no_api_key'
+  | 'timeout'
+  | 'rate_limited'
+  | 'provider_error'
+  | 'invalid_output';
+
+export interface NarrativeIssue {
+  rule: string;
+  explanation: string;
+  tip: string;
+}
+
+export interface NarrativeData {
+  summary: string;
+  strengths: string[];
+  issues: NarrativeIssue[];
+  next_session: string[];
+  fatigue_note: string;
+}
+
+export interface TopIssueStat {
+  rule: string;
+  count: number;
+  share: number;
+}
+
+export interface SetStat {
+  exercise: string;
+  reps: number;
+  average_score: number;
+  best: number;
+  worst: number;
+  form_drop: number | null;
+  trend: string;
+  violation_ranking: Array<{ rule: string; count: number }>;
+}
+
+export interface SessionStatsData {
+  total_reps: number;
+  average_score: number;
+  duration_minutes: number;
+  exercises: string[];
+  top_issues: TopIssueStat[];
+  sets: SetStat[];
+}
+
+export interface ReportRead {
+  session_id: number;
+  language: ReportLanguage;
+  created_at: string;
+  provider: string;
+  model: string;
+  is_fallback: boolean;
+  fallback_reason: FallbackReason | null;
+  stats: SessionStatsData;
+  narrative: NarrativeData;
+}
+
 export interface SessionListItem {
   id: number;
   started_at: string;
@@ -314,5 +385,118 @@ export async function getProgress(params?: {
   }
 
   throw new ApiError(`Failed to fetch progress (${response.status})`);
+}
+
+const GENERATE_TIMEOUT_MS = 40000;
+
+function parseRetryAfter(header: string | null | undefined): number {
+  if (!header) return 10;
+  const parsed = parseInt(header.trim(), 10);
+  if (isNaN(parsed) || parsed <= 0) return 10;
+  return parsed;
+}
+
+/**
+ * Retrieves cached coaching report for a session in the given language.
+ * Returns the report or null if 404 (not yet generated).
+ */
+export async function getReport(
+  sessionId: number,
+  language: ReportLanguage = 'en'
+): Promise<ReportRead | null> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(
+    `${baseUrl}/sessions/${sessionId}/report?language=${encodeURIComponent(language)}`,
+    {
+      method: 'GET',
+    },
+    REQUEST_TIMEOUT_MS
+  );
+
+  if (response.status === 200) {
+    return response.json();
+  }
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (response.status === 422) {
+    let errorDetail: unknown = null;
+    let readableMessage = 'Validation error';
+    try {
+      const data = await response.json();
+      errorDetail = data.detail;
+      readableMessage = formatValidationDetail(data.detail);
+    } catch {
+      readableMessage = 'Validation failed';
+    }
+    throw new ValidationError(readableMessage, errorDetail);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch report (${response.status})`);
+}
+
+/**
+ * Generates or retrieves coaching report for a session.
+ * Uses 40-second timeout for LLM generation.
+ */
+export async function generateReport(
+  sessionId: number,
+  language: ReportLanguage = 'en',
+  force = false
+): Promise<ReportRead> {
+  const baseUrl = getApiUrl();
+  const url = `${baseUrl}/sessions/${sessionId}/report?language=${encodeURIComponent(
+    language
+  )}&force=${force ? 'true' : 'false'}`;
+
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: 'POST',
+    },
+    GENERATE_TIMEOUT_MS
+  );
+
+  if (response.status === 200 || response.status === 201) {
+    return response.json();
+  }
+
+  if (response.status === 429) {
+    const retryHeader = response.headers.get('Retry-After');
+    const retrySeconds = parseRetryAfter(retryHeader);
+    throw new RateLimitError(
+      retrySeconds,
+      `Too many requests. Please wait ${retrySeconds} seconds.`
+    );
+  }
+
+  if (response.status === 404) {
+    throw new NotFoundError(`Session with id ${sessionId} not found`);
+  }
+
+  if (response.status === 422) {
+    let errorDetail: unknown = null;
+    let readableMessage = 'Validation error';
+    try {
+      const data = await response.json();
+      errorDetail = data.detail;
+      readableMessage = formatValidationDetail(data.detail);
+    } catch {
+      readableMessage = 'Validation failed';
+    }
+    throw new ValidationError(readableMessage, errorDetail);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to generate report (${response.status})`);
 }
 

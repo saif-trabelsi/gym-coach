@@ -6,11 +6,15 @@ import {
   getSession,
   deleteSession,
   getProgress,
+  getReport,
+  generateReport,
   NetworkError,
   TimeoutError,
   ValidationError,
   ServerError,
   NotFoundError,
+  RateLimitError,
+  type ReportRead,
 } from './client';
 import type { SessionPayload } from '../recording/workoutRecorder';
 
@@ -245,6 +249,96 @@ describe('API Client (client.ts)', () => {
         expect.stringMatching(/\/stats\/progress\?.*tz_offset_minutes=120/),
         expect.objectContaining({ method: 'GET' })
       );
+    });
+
+    it('d. getReport returns null on 404 and the report on 200', async () => {
+      const mockReport: ReportRead = {
+        session_id: 1,
+        language: 'en',
+        created_at: '2026-11-05T10:00:00Z',
+        provider: 'gemini',
+        model: 'gemini-2.5-flash-lite',
+        is_fallback: false,
+        fallback_reason: null,
+        stats: {
+          total_reps: 10,
+          average_score: 85,
+          duration_minutes: 5.5,
+          exercises: ['squat'],
+          top_issues: [],
+          sets: [],
+        },
+        narrative: {
+          summary: 'Great workout.',
+          strengths: ['Consistent depth'],
+          issues: [],
+          next_session: ['Keep it up', 'Rest well'],
+          fatigue_note: 'No fatigue observed',
+        },
+      };
+
+      // 1. 200 returns report
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify(mockReport), { status: 200 })
+      );
+      const res = await getReport(1, 'en');
+      expect(res).toEqual(mockReport);
+
+      // 2. 404 returns null
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'Not found' }), { status: 404 })
+      );
+      const nullRes = await getReport(99, 'en');
+      expect(nullRes).toBeNull();
+    });
+
+    it('d. generateReport sends force=true in query when requested', async () => {
+      const mockReport: Partial<ReportRead> = { session_id: 1 };
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify(mockReport), { status: 201 })
+      );
+
+      await generateReport(1, 'fr', true);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/\/sessions\/1\/report\?language=fr&force=true/),
+        expect.objectContaining({ method: 'POST' })
+      );
+    });
+
+    it('d. a 429 with Retry-After 7 produces a rate-limit error with retryAfterSeconds 7', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'Too many requests' }), {
+          status: 429,
+          headers: { 'Retry-After': '7' },
+        })
+      );
+
+      try {
+        await generateReport(1, 'en', true);
+        expect.fail('Should have thrown RateLimitError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitError);
+        expect((err as RateLimitError).retryAfterSeconds).toBe(7);
+      }
+    });
+
+    it('d. a timeout is reported as a timeout and network failure as unreachable', async () => {
+      // 1. Timeout
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(abortError);
+
+      await expect(getReport(1, 'en')).rejects.toThrow(TimeoutError);
+
+      // 2. Network failure
+      globalThis.fetch = vi.fn().mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      try {
+        await getReport(1, 'en');
+        expect.fail('Should have thrown NetworkError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(NetworkError);
+        expect((err as NetworkError).message).toContain('Backend unreachable');
+      }
     });
   });
 });

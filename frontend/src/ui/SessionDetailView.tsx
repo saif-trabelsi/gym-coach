@@ -9,12 +9,14 @@ import {
   Tooltip,
   ReferenceLine,
 } from 'recharts';
-import { getSession, type SessionRead, NotFoundError } from '../api/client';
+import { getSession, type SessionRead, type ReportLanguage, NotFoundError } from '../api/client';
 import { setSummary, type FatigueTrend } from '../analytics/fatigue';
+import { ReportCard } from './ReportCard';
 
 interface SessionDetailViewProps {
   sessionId: number;
   onBack: () => void;
+  initialLanguage?: ReportLanguage;
 }
 
 const METRIC_LABELS: Record<string, string> = {
@@ -35,6 +37,7 @@ const METRIC_LABELS: Record<string, string> = {
 export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
   sessionId,
   onBack,
+  initialLanguage = 'en',
 }) => {
   const [session, setSession] = useState<SessionRead | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -215,6 +218,9 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* AI Coaching Report Card */}
+      <ReportCard sessionId={session.id} initialLanguage={initialLanguage} />
 
       {/* Sets Detail */}
       <div className="flex flex-col gap-8">
