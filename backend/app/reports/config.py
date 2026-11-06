@@ -1,7 +1,7 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from dotenv import load_dotenv
 
 # Load backend/.env if present
@@ -15,6 +15,7 @@ class ReportSettings:
     gemini_api_key: Optional[str]
     llm_model: str
     llm_timeout_seconds: float
+    llm_fallback_models: List[str] = field(default_factory=list)
 
 
 def get_report_settings() -> ReportSettings:
@@ -34,9 +35,13 @@ def get_report_settings() -> ReportSettings:
     except ValueError:
         timeout = 20.0
 
+    raw_fallbacks = os.getenv("LLM_FALLBACK_MODELS", "").strip()
+    fallback_models = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
+
     return ReportSettings(
         llm_provider=provider,
         gemini_api_key=api_key,
         llm_model=model,
         llm_timeout_seconds=timeout,
+        llm_fallback_models=fallback_models,
     )

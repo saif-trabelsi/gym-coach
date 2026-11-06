@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session as DBSession, select
@@ -8,7 +8,7 @@ from app.db import get_session
 from app.models import Session, SessionReport
 from app.reports.config import ReportSettings, get_report_settings
 from app.reports.service import SUPPORTED_LANGUAGES, generate_report
-from app.schemas import ReportRead
+from app.schemas import ReportRead, ReportsCollectionRead
 
 router = APIRouter(prefix="/sessions", tags=["reports"])
 
@@ -82,3 +82,34 @@ def get_cached_report(
         )
 
     return report
+
+
+@router.get(
+    "/{id}/reports",
+    response_model=ReportsCollectionRead,
+    summary="Get all cached coaching reports for a session",
+)
+def get_all_cached_reports(
+    id: int,
+    db: DBSession = Depends(get_session),
+):
+    session_obj = db.exec(select(Session).where(Session.id == id)).first()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail=f"Session with id {id} not found")
+
+    reports_db = db.exec(
+        select(SessionReport).where(SessionReport.session_id == id)
+    ).all()
+    reports_map: Dict[str, Optional[ReportRead]] = {
+        "en": None,
+        "fr": None,
+        "ar": None,
+    }
+    for rep in reports_db:
+        if rep.language in reports_map:
+            reports_map[rep.language] = ReportRead.model_validate(rep)
+
+    return ReportsCollectionRead(
+        session_id=id,
+        reports=reports_map,
+    )

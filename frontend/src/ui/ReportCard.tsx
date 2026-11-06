@@ -1,10 +1,12 @@
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useEffect, useReducer, useState, useCallback, useRef } from 'react';
 import {
-  getReport,
+  getAllReports,
   generateReport,
+  subscribeHealth,
   type ReportLanguage,
   type ReportRead,
   NetworkError,
+  NotFoundError,
   ServerError,
   RateLimitError,
 } from '../api/client';
@@ -49,51 +51,119 @@ export const ReportCard: React.FC<ReportCardProps> = ({
     createInitialReportState(sessionId, initialLanguage)
   );
   const [copied, setCopied] = useState<boolean>(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
+  const sessionFetchedRef = useRef<number | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Sync state if sessionId or initialLanguage changes
   useEffect(() => {
     setSelectedLanguage(initialLanguage);
+    sessionFetchedRef.current = null;
     dispatch({ type: 'RESET', sessionId, language: initialLanguage });
   }, [sessionId, initialLanguage]);
 
-  // Load report on mount or language change (GET only)
-  useEffect(() => {
-    let isCancelled = false;
+  // Load reports for the session
+  const loadReports = useCallback(() => {
     const lang = selectedLanguage;
-
-    // Check in-memory cache first
     const cached = getCachedReport(sessionId, lang);
     if (cached) {
-      // Re-trigger start fetch cache to get the correct requestKey, then resolve immediately
       dispatch({ type: 'START_FETCH_CACHE', sessionId, language: lang });
-      // Construct expected key: `${sessionId}_${lang}_${state.counter + 1}`
-      const reqKey = `${sessionId}_${lang}_${state.counter + 1}`;
+      const reqKey = `${sessionId}_${lang}_${stateRef.current.counter + 1}`;
       dispatch({ type: 'CACHE_FOUND', requestKey: reqKey, report: cached });
       return;
     }
 
     dispatch({ type: 'START_FETCH_CACHE', sessionId, language: lang });
-    const reqKey = `${sessionId}_${lang}_${state.counter + 1}`;
+    const reqKey = `${sessionId}_${lang}_${stateRef.current.counter + 1}`;
 
-    getReport(sessionId, lang)
-      .then((report) => {
-        if (isCancelled) return;
-        if (report) {
-          setCachedReport(sessionId, lang, report);
-          dispatch({ type: 'CACHE_FOUND', requestKey: reqKey, report });
-        } else {
-          dispatch({ type: 'CACHE_NOT_FOUND', requestKey: reqKey });
+    getAllReports(sessionId)
+      .then((data) => {
+        sessionFetchedRef.current = sessionId;
+        if (data.reports) {
+          for (const [l, r] of Object.entries(data.reports)) {
+            if (r) {
+              setCachedReport(sessionId, l as ReportLanguage, r);
+            }
+          }
+          const activeReport = data.reports[lang];
+          if (activeReport) {
+            dispatch({ type: 'CACHE_FOUND', requestKey: reqKey, report: activeReport });
+          } else {
+            dispatch({ type: 'CACHE_NOT_FOUND', requestKey: reqKey });
+          }
         }
       })
       .catch((err: Error) => {
-        if (isCancelled) return;
-        dispatch({ type: 'FETCH_ERROR', requestKey: reqKey, error: err });
+        if (err instanceof NotFoundError) {
+          dispatch({ type: 'CACHE_NOT_FOUND', requestKey: reqKey });
+        } else {
+          dispatch({ type: 'FETCH_ERROR', requestKey: reqKey, error: err });
+        }
       });
-
-    return () => {
-      isCancelled = true;
-    };
   }, [sessionId, selectedLanguage]);
+
+  // On mount or sessionId/language change
+  useEffect(() => {
+    const cached = getCachedReport(sessionId, selectedLanguage);
+    if (cached) {
+      dispatch({ type: 'START_FETCH_CACHE', sessionId, language: selectedLanguage });
+      const reqKey = `${sessionId}_${selectedLanguage}_${state.counter + 1}`;
+      dispatch({ type: 'CACHE_FOUND', requestKey: reqKey, report: cached });
+    } else if (sessionFetchedRef.current === sessionId) {
+      // Session was already fetched from server, and this language was not in the collection
+      const reqKey = `${sessionId}_${selectedLanguage}_${state.counter + 1}`;
+      dispatch({ type: 'CACHE_NOT_FOUND', requestKey: reqKey });
+    } else {
+      loadReports();
+    }
+  }, [sessionId, selectedLanguage, loadReports]);
+
+  // Subscribe to health check: if backend recovers from offline to online, refetch!
+  useEffect(() => {
+    const unsubscribe = subscribeHealth((online) => {
+      if (online) {
+        loadReports();
+      }
+    });
+    return unsubscribe;
+  }, [loadReports]);
+
+  // Cooldown calculation: 10s cooldown after generation computed from report created_at
+  useEffect(() => {
+    if (!state.report?.created_at) {
+      setCooldownSeconds(0);
+      return;
+    }
+
+    const createdAtMs = new Date(state.report.created_at).getTime();
+    if (isNaN(createdAtMs)) {
+      setCooldownSeconds(0);
+      return;
+    }
+
+    const calcRemaining = () => {
+      const nowMs = Date.now();
+      // Tolerant to clock differences: if nowMs < createdAtMs, elapsed is 0, remaining is 10
+      const elapsed = Math.max(0, (nowMs - createdAtMs) / 1000);
+      if (elapsed >= 10.0) return 0;
+      return Math.min(10, Math.max(0, Math.ceil(10.0 - elapsed)));
+    };
+
+    const initial = calcRemaining();
+    setCooldownSeconds(initial);
+    if (initial <= 0) return;
+
+    const timer = setInterval(() => {
+      const rem = calcRemaining();
+      setCooldownSeconds(rem);
+      if (rem <= 0) {
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [state.report?.created_at, state.report?.language, state.status]);
 
   // Live countdown timer for rate-limited state
   useEffect(() => {
@@ -108,7 +178,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
   // Trigger report generation (POST)
   const handleGenerate = async (force = false) => {
-    if (state.status === 'generating') return; // Prevent double submission
+    if (state.status === 'generating' || cooldownSeconds > 0) return;
 
     const lang = selectedLanguage;
     dispatch({ type: 'START_GENERATE', sessionId, language: lang, force });
@@ -163,6 +233,13 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
   const isButtonsDisabled = state.status === 'generating' || state.status === 'rateLimited';
 
+  const isUnreachableError =
+    state.error instanceof NetworkError ||
+    (state.error?.message &&
+      (state.error.message.toLowerCase().includes('backend unreachable') ||
+        state.error.message.toLowerCase().includes('not reachable') ||
+        state.error.message.toLowerCase().includes('failed to fetch')));
+
   return (
     <div
       data-testid="report-card"
@@ -214,8 +291,8 @@ export const ReportCard: React.FC<ReportCardProps> = ({
           </div>
           <button
             onClick={() => handleGenerate(false)}
-            disabled={isButtonsDisabled}
-            className="mt-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-2"
+            disabled={isButtonsDisabled || cooldownSeconds > 0}
+            className="mt-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-2 disabled:opacity-50"
           >
             <span>✨</span> Generate
           </button>
@@ -251,33 +328,20 @@ export const ReportCard: React.FC<ReportCardProps> = ({
           <span className="text-2xl">⚠️</span>
           <div>
             <h3 className="text-sm font-bold text-rose-300">
-              {state.error instanceof NetworkError
-                ? 'Backend unreachable'
+              {isUnreachableError
+                ? 'The backend is not reachable'
                 : state.error instanceof ServerError
                 ? 'Server error'
                 : 'Failed to load report'}
             </h3>
             <p className="text-xs text-rose-200/80 mt-1 max-w-md">
-              {state.error?.message || 'An unexpected error occurred while communicating with the server.'}
+              {isUnreachableError
+                ? 'The backend is not reachable. Please check your connection and ensure the server is running.'
+                : state.error?.message || 'An unexpected error occurred while communicating with the server.'}
             </p>
           </div>
           <button
-            onClick={() => {
-              if (state.report) {
-                handleGenerate(true);
-              } else {
-                // Retry checking cache
-                setSelectedLanguage((prev) => prev);
-                dispatch({ type: 'START_FETCH_CACHE', sessionId, language: selectedLanguage });
-                const reqKey = `${sessionId}_${selectedLanguage}_${state.counter + 1}`;
-                getReport(sessionId, selectedLanguage)
-                  .then((r) => {
-                    if (r) dispatch({ type: 'CACHE_FOUND', requestKey: reqKey, report: r });
-                    else dispatch({ type: 'CACHE_NOT_FOUND', requestKey: reqKey });
-                  })
-                  .catch((e) => dispatch({ type: 'FETCH_ERROR', requestKey: reqKey, error: e }));
-              }
-            }}
+            onClick={() => loadReports()}
             className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all"
           >
             Retry
@@ -325,21 +389,25 @@ export const ReportCard: React.FC<ReportCardProps> = ({
               {!state.report.is_fallback ? (
                 <button
                   onClick={() => handleGenerate(true)}
-                  disabled={isButtonsDisabled}
+                  disabled={isButtonsDisabled || cooldownSeconds > 0}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <span>🔄</span>
-                  <span>Regenerate</span>
+                  <span>
+                    {cooldownSeconds > 0 ? `Regenerate (${cooldownSeconds}s)` : 'Regenerate'}
+                  </span>
                 </button>
               ) : (
                 canRetryAI(state.report.fallback_reason) && (
                   <button
                     onClick={() => handleGenerate(true)}
-                    disabled={isButtonsDisabled}
+                    disabled={isButtonsDisabled || cooldownSeconds > 0}
                     className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50"
                   >
                     <span>🔄</span>
-                    <span>Try AI again</span>
+                    <span>
+                      {cooldownSeconds > 0 ? `Try AI again (${cooldownSeconds}s)` : 'Try AI again'}
+                    </span>
                   </button>
                 )
               )}
@@ -401,47 +469,44 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
             {/* Strengths */}
             {state.report.narrative.strengths && state.report.narrative.strengths.length > 0 && (
-              <div className="flex flex-col gap-1.5 bg-emerald-950/20 border border-emerald-900/30 rounded-xl p-3">
-                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                  {selectedLanguage === 'ar' ? 'نقاط القوة' : selectedLanguage === 'fr' ? 'Points forts' : 'Strengths'}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-1.5">
+                <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>💪</span> Strengths
                 </span>
                 <ul className="list-disc list-inside space-y-1 text-slate-300">
-                  {state.report.narrative.strengths.map((str, idx) => (
-                    <li key={idx}>
-                      <bdi>{str}</bdi>
+                  {state.report.narrative.strengths.map((strength, i) => (
+                    <li key={i}>
+                      <bdi>{strength}</bdi>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {/* Issue Cards */}
+            {/* Form Issues (with localized rule headings & action tips) */}
             {state.report.narrative.issues && state.report.narrative.issues.length > 0 && (
-              <div className="flex flex-col gap-2.5">
-                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                  {selectedLanguage === 'ar'
-                    ? 'مجالات التحسين'
-                    : selectedLanguage === 'fr'
-                    ? 'Axes d’amélioration'
-                    : 'Areas for Improvement'}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-2.5">
+                <span className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🎯</span> Key Form Issues
                 </span>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {state.report.narrative.issues.map((issue, idx) => (
+                <div className="flex flex-col gap-2">
+                  {state.report.narrative.issues.map((issue) => (
                     <div
-                      key={idx}
-                      className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-3.5 flex flex-col gap-2"
+                      key={issue.rule}
+                      className="border border-rose-900/30 bg-rose-950/10 rounded-lg p-2.5 flex flex-col gap-1"
                     >
-                      <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
-                        <span className="text-amber-400">⚠️</span>
-                        <bdi>{resolveRuleHeading(issue.rule)}</bdi>
-                      </h4>
-                      <p className="text-slate-300 text-[11px]">
+                      <div className="font-semibold text-rose-300 flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800/50">
+                          {issue.rule}
+                        </span>
+                        <span>•</span>
+                        <span>{resolveRuleHeading(issue.rule)}</span>
+                      </div>
+                      <p className="text-slate-300 text-xs">
                         <bdi>{issue.explanation}</bdi>
                       </p>
-                      <div className="bg-slate-900/70 border border-slate-800 rounded-lg p-2 text-[11px] text-amber-200/90">
-                        <strong>
-                          {selectedLanguage === 'ar' ? 'نصيحة: ' : selectedLanguage === 'fr' ? 'Conseil : ' : 'Tip: '}
-                        </strong>
+                      <div className="text-amber-300/90 text-xs mt-0.5 font-medium flex items-start gap-1">
+                        <span>💡</span>
                         <bdi>{issue.tip}</bdi>
                       </div>
                     </div>
@@ -450,54 +515,30 @@ export const ReportCard: React.FC<ReportCardProps> = ({
               </div>
             )}
 
-            {/* Next Session Steps */}
+            {/* Next Session Focus */}
             {state.report.narrative.next_session && state.report.narrative.next_session.length > 0 && (
-              <div className="flex flex-col gap-1.5 bg-indigo-950/20 border border-indigo-900/30 rounded-xl p-3">
-                <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-wider">
-                  {selectedLanguage === 'ar'
-                    ? 'الخطوات للجلسة القادمة'
-                    : selectedLanguage === 'fr'
-                    ? 'Pour la prochaine séance'
-                    : 'Next Session'}
+              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-1.5">
+                <span className="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🎯</span> Focus for Next Session
                 </span>
-                <ol className="list-decimal list-inside space-y-1 text-slate-300">
-                  {state.report.narrative.next_session.map((step, idx) => (
-                    <li key={idx}>
-                      <bdi>{step}</bdi>
+                <ul className="list-disc list-inside space-y-1 text-slate-300">
+                  {state.report.narrative.next_session.map((item, i) => (
+                    <li key={i}>
+                      <bdi>{item}</bdi>
                     </li>
                   ))}
-                </ol>
+                </ul>
               </div>
             )}
 
-            {/* Fatigue Note Callout */}
+            {/* Fatigue Note */}
             {state.report.narrative.fatigue_note && (
-              <div className="bg-slate-800/50 border-l-4 border-cyan-500 rounded-r-xl p-3 text-[11px] text-slate-300">
-                <strong className="text-cyan-400 block mb-0.5">
-                  {selectedLanguage === 'ar'
-                    ? 'تحليل التعب والإرهاق'
-                    : selectedLanguage === 'fr'
-                    ? 'Analyse de fatigue'
-                    : 'Fatigue Analysis'}
-                </strong>
-                <p>
-                  <bdi>{state.report.narrative.fatigue_note}</bdi>
-                </p>
+              <div className="text-[11px] text-slate-400 italic border-t border-slate-800/60 pt-2 flex items-center gap-1.5">
+                <span>⚡</span>
+                <bdi>{state.report.narrative.fatigue_note}</bdi>
               </div>
             )}
-
-            {/* Generated Timestamp */}
-            <div className="text-[11px] text-slate-500 flex justify-between items-center pt-1 border-t border-slate-800/60">
-              <span>
-                Generated: <bdi>{new Date(state.report.created_at).toLocaleString()}</bdi>
-              </span>
-            </div>
           </div>
-
-          {/* Small Note Under Narrative */}
-          <p className="text-[11px] text-slate-500 italic mt-1">
-            Numbers are computed from your saved reps. The text is written by an AI and may be imperfect.
-          </p>
         </div>
       )}
     </div>

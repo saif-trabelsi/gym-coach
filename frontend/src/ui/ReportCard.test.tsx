@@ -141,7 +141,7 @@ describe('ReportCard Component (ReportCard.test.tsx)', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/sessions/10/report?language=en'),
+      expect.stringContaining('/sessions/10/reports'),
       expect.objectContaining({ method: 'GET' })
     );
   });

@@ -258,6 +258,26 @@ export async function createSession(payload: SessionPayload): Promise<SessionRea
   throw new ApiError(`Unexpected response from server (${response.status})`);
 }
 
+export type HealthListener = (online: boolean) => void;
+const healthListeners = new Set<HealthListener>();
+
+export function subscribeHealth(listener: HealthListener): () => void {
+  healthListeners.add(listener);
+  return () => {
+    healthListeners.delete(listener);
+  };
+}
+
+export function notifyHealth(online: boolean): void {
+  for (const listener of healthListeners) {
+    try {
+      listener(online);
+    } catch {
+      // Ignore listener error
+    }
+  }
+}
+
 /**
  * Checks backend health. Returns true if healthy, false otherwise.
  */
@@ -267,10 +287,11 @@ export async function checkHealth(): Promise<boolean> {
     const response = await fetchWithTimeout(`${baseUrl}/health`, {
       method: 'GET',
     });
-    if (!response.ok) return false;
-    const data = await response.json();
-    return data?.status === 'ok';
+    const isOk = response.ok && (await response.json())?.status === 'ok';
+    notifyHealth(Boolean(isOk));
+    return Boolean(isOk);
   } catch {
+    notifyHealth(false);
     return false;
   }
 }
@@ -397,6 +418,55 @@ function parseRetryAfter(header: string | null | undefined): number {
   const parsed = parseInt(header.trim(), 10);
   if (isNaN(parsed) || parsed <= 0) return 10;
   return parsed;
+}
+
+export interface AllReportsRead {
+  session_id: number;
+  reports: {
+    en: ReportRead | null;
+    fr: ReportRead | null;
+    ar: ReportRead | null;
+  };
+}
+
+/**
+ * Retrieves all cached coaching reports for a session in one request.
+ */
+export async function getAllReports(sessionId: number): Promise<AllReportsRead> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(
+    `${baseUrl}/sessions/${sessionId}/reports`,
+    {
+      method: 'GET',
+    },
+    REQUEST_TIMEOUT_MS
+  );
+
+  if (response.status === 200) {
+    const data = await response.json();
+    if (data && data.reports) {
+      return data;
+    }
+    return {
+      session_id: data.session_id,
+      reports: {
+        en: data.language === 'en' ? data : null,
+        fr: data.language === 'fr' ? data : null,
+        ar: data.language === 'ar' ? data : null,
+        [data.language || 'en']: data,
+      },
+    };
+  }
+
+  if (response.status === 404) {
+    throw new NotFoundError(`Session with id ${sessionId} not found`);
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to fetch reports (${response.status})`);
 }
 
 /**

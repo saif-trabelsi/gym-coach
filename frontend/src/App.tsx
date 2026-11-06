@@ -37,6 +37,7 @@ import { FrameBuffer, getHighlightJoints } from './recording/frameBuffer';
 import {
   createSession,
   checkHealth,
+  subscribeHealth,
   NetworkError,
   TimeoutError,
   ValidationError,
@@ -214,9 +215,15 @@ export default function App() {
     };
     ping();
     const interval = setInterval(ping, 15000);
+    const unsubscribe = subscribeHealth((isOk) => {
+      if (isMounted) {
+        setBackendOnline(isOk);
+      }
+    });
     return () => {
       isMounted = false;
       clearInterval(interval);
+      unsubscribe();
     };
   }, []);
 
@@ -659,6 +666,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      {/* Offline banner */}
+      {backendOnline === false && (
+        <div
+          role="alert"
+          data-testid="backend-offline-banner"
+          className="w-full bg-rose-600 text-white text-xs py-1 px-4 text-center font-medium sticky top-0 z-50 shadow"
+        >
+          The backend is not reachable
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">

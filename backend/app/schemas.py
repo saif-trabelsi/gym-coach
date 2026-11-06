@@ -5,6 +5,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import (
     BaseModel,
     BeforeValidator,
+    ConfigDict,
     Field,
     PlainSerializer,
     field_validator,
@@ -219,6 +220,8 @@ class ProgressStatRead(BaseModel):
 
 
 class ReportRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     session_id: int
     language: str
     created_at: UTCDateTime
@@ -228,4 +231,11 @@ class ReportRead(BaseModel):
     fallback_reason: Optional[str] = None
     stats: Dict[str, Any]
     narrative: Dict[str, Any]
+
+
+class ReportsCollectionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: int
+    reports: Dict[str, Optional[ReportRead]]
 
