@@ -3,7 +3,7 @@
 ## Status (the agent updates this column only after I confirm a task)
 5.4 Replay viewer: DONE
 R.1 Report reliability: DONE
-D.1 Design system and app shell: TODO
+D.1 Design system and app shell: DONE
 D.2 Coach screen redesign: TODO
 D.3 History, session detail, report card and replay restyle: TODO
 D.4 Progress, polish, accessibility, share image: TODO

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Camera, type CameraHandle } from './ui/Camera';
 import { VideoFileInput, type VideoFileInputHandle } from './ui/VideoFileInput';
 import { Overlay, type OverlayHandle } from './ui/Overlay';
-import { FpsCounter } from './ui/FpsCounter';
-import { AngleChart, type AngleDataPoint } from './ui/AngleChart';
+import type { AngleDataPoint } from './ui/AngleChart';
 import {
   createPoseDetector,
   type PoseDetector,
@@ -26,7 +25,7 @@ import {
   type FeedbackResult,
   type SupportedLanguage,
 } from './feedback';
-import { WorkoutPanel, type SaveErrorState, type SaveSuccessState } from './ui/WorkoutPanel';
+import type { SaveErrorState, SaveSuccessState } from './ui/WorkoutPanel';
 import {
   WorkoutRecorder,
   type RecordedSet,
@@ -50,6 +49,10 @@ import { ProgressView } from './ui/ProgressView';
 import { AppShell } from './ui/shell/AppShell';
 import { DesignStyleGuide } from './ui/DesignStyleGuide';
 import { ToastProvider } from './ui/kit';
+import { ExerciseCards } from './ui/coach/ExerciseCards';
+import { HudOverlays } from './ui/coach/HudOverlays';
+import { CoachSidePanel } from './ui/coach/CoachSidePanel';
+import { CoachToolbar } from './ui/coach/CoachToolbar';
 
 type InputMode = 'webcam' | 'video';
 export type ExerciseType = 'squat' | 'bicepCurl';
@@ -638,35 +641,6 @@ export default function App() {
     setMode(newMode);
   };
 
-  // State badge styling
-  const getStateBadge = (state: RepState, ex: ExerciseType) => {
-    if (ex === 'squat') {
-      switch (state) {
-        case 'idle':
-          return { text: 'IDLE (Standing)', color: 'bg-slate-800 text-slate-300 border-slate-700' };
-        case 'descending':
-          return { text: 'DESCENDING ↓', color: 'bg-cyan-950 text-cyan-300 border-cyan-700 animate-pulse' };
-        case 'bottom':
-          return { text: 'BOTTOM (Parallel) 🎯', color: 'bg-emerald-950 text-emerald-300 border-emerald-600 font-bold' };
-        case 'ascending':
-          return { text: 'ASCENDING ↑', color: 'bg-indigo-950 text-indigo-300 border-indigo-700 animate-pulse' };
-      }
-    } else {
-      switch (state) {
-        case 'idle':
-          return { text: 'READY (Extended)', color: 'bg-slate-800 text-slate-300 border-slate-700' };
-        case 'descending':
-          return { text: 'CURLING UP ⬆', color: 'bg-cyan-950 text-cyan-300 border-cyan-700 animate-pulse' };
-        case 'bottom':
-          return { text: 'PEAK CONTRACTION 🎯', color: 'bg-emerald-950 text-emerald-300 border-emerald-600 font-bold' };
-        case 'ascending':
-          return { text: 'LOWERING ⬇', color: 'bg-indigo-950 text-indigo-300 border-indigo-700 animate-pulse' };
-      }
-    }
-  };
-
-  const stateBadge = getStateBadge(currentState, exercise);
-
   return (
     <ToastProvider>
       <AppShell
@@ -677,463 +651,129 @@ export default function App() {
         {/* Main Content Area */}
         <div className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
           {currentRoute.view === 'coach' && (
-            <>
-              {/* Coach Controls Bar */}
-              <div className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-2.5 rounded-[var(--radius-xl)] shadow-sm">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  {/* Exercise View Selector */}
-                  <div className="flex items-center bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-[var(--border-subtle)] shadow-inner">
-                    <button
-                      onClick={() => handleExerciseChange('squat')}
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                        exercise === 'squat'
-                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <span>🏋️</span> Squat
-                    </button>
-                    <button
-                      onClick={() => handleExerciseChange('bicepCurl')}
-                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                        exercise === 'bicepCurl'
-                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <span>💪</span> Curl
-                    </button>
-                  </div>
-
-                  {/* Mode Switcher */}
-                  <div className="flex items-center bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-[var(--border-subtle)]">
-                    <button
-                      onClick={() => handleModeChange('webcam')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        mode === 'webcam'
-                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      📹 Webcam
-                    </button>
-                    <button
-                      onClick={() => handleModeChange('video')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                        mode === 'video'
-                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      📁 Video
-                    </button>
-                  </div>
+            <div className="w-full flex flex-col gap-6">
+              {/* Voice fallback notification */}
+              {voiceNotice && (
+                <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
+                  <span>ℹ️</span>
+                  <span>{voiceNotice}</span>
                 </div>
+              )}
 
-                {/* Audio, Language & Status Controls */}
-                <div className="flex items-center gap-2">
-                  <select
-                    value={language}
-                    onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
-                    aria-label="Language selector"
-                    className="bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-lg px-2 py-1 text-xs font-medium focus:ring-1 focus:ring-[var(--border-focus)] outline-none cursor-pointer"
-                  >
-                    <option value="en-US">🇺🇸 EN</option>
-                    <option value="fr-FR">🇫🇷 FR</option>
-                    <option value="ar">🇸🇦 AR</option>
-                  </select>
+              {/* Model loading alert */}
+              {isModelLoading && (
+                <div className="w-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-xl p-3 flex items-center gap-3 text-xs text-[var(--accent)]">
+                  <svg className="animate-spin h-4 w-4 text-[var(--accent)]" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  <span>Loading MediaPipe Pose Landmarker (&apos;full&apos; model, GPU delegate)...</span>
+                </div>
+              )}
 
-                  <button
-                    onClick={handleToggleMute}
-                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1 cursor-pointer ${
-                      isMuted
-                        ? 'bg-[var(--status-danger-bg)] text-[var(--status-danger)] border-[var(--status-danger-border)]'
-                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border-[var(--border-default)] hover:bg-[var(--bg-surface)]'
-                    }`}
-                    title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
-                  >
-                    {isMuted ? 'Muted' : 'Voice'}
-                  </button>
+              {modelError && (
+                <div className="w-full bg-rose-950/40 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-300">
+                  <strong>Model Error:</strong> {modelError}
+                </div>
+              )}
 
-                  <FpsCounter
+              {/* Exercise Selector Cards */}
+              <ExerciseCards
+                selected={exercise}
+                onSelect={(ex) => handleExerciseChange(ex)}
+                disabled={activeVideo !== null && !activeVideo.paused}
+              />
+
+              {/* Responsive Layout: Video Stage + Side Panel */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start w-full">
+                {/* Hero Video Stage & Toolbar (Left Column) */}
+                <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-4 w-full">
+                  <div className="relative w-full">
+                    {mode === 'webcam' ? (
+                      <Camera
+                        ref={cameraRef}
+                        exercise={exercise}
+                        onVideoElement={(video) => {
+                          unlockAudio();
+                          setActiveVideo(video);
+                        }}
+                      >
+                        <Overlay ref={overlayRef} />
+                        <HudOverlays
+                          exercise={exercise}
+                          currentState={currentState}
+                          repCount={repCount}
+                          lastRep={lastRep}
+                          latestFeedback={latestFeedback}
+                          isBodyVisible={isBodyVisible}
+                        />
+                      </Camera>
+                    ) : (
+                      <VideoFileInput
+                        ref={videoInputRef}
+                        onVideoElement={(video) => {
+                          unlockAudio();
+                          setActiveVideo(video);
+                        }}
+                      >
+                        <Overlay ref={overlayRef} />
+                        <HudOverlays
+                          exercise={exercise}
+                          currentState={currentState}
+                          repCount={repCount}
+                          lastRep={lastRep}
+                          latestFeedback={latestFeedback}
+                          isBodyVisible={isBodyVisible}
+                        />
+                      </VideoFileInput>
+                    )}
+                  </div>
+
+                  {/* Compact Toolbar, Performance & Collapsible Angle Chart */}
+                  <CoachToolbar
+                    mode={mode}
+                    onModeChange={handleModeChange}
+                    language={language}
+                    onLanguageChange={handleLanguageChange}
+                    isMuted={isMuted}
+                    onToggleMute={handleToggleMute}
+                    onReset={handleReset}
                     fps={fps}
                     delegate={delegate}
-                    inferenceTimeMs={fps > 0 ? inferenceTimeMs : undefined}
+                    inferenceTimeMs={inferenceTimeMs}
+                    poseDetected={poseDetected}
+                    activeSide={activeSide}
+                    chartData={chartData}
+                    upThreshold={activeConfig.upThreshold}
+                    downThreshold={activeConfig.downThreshold}
+                    currentAngle={currentAngle}
                   />
+                </div>
 
-                  {/* Pose status pill */}
-                  <div
-                    className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center gap-1.5 ${
-                      poseDetected
-                        ? 'bg-[var(--score-good-bg)] text-[var(--score-good)] border-[var(--score-good-border)]'
-                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border-[var(--border-subtle)]'
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        poseDetected ? 'bg-[var(--score-good)]' : 'bg-[var(--text-muted)]'
-                      }`}
-                    />
-                    {poseDetected ? 'Pose 3D' : 'No pose'}
-                  </div>
-
-                  <button
-                    onClick={handleReset}
-                    title="Reset rep counter and state machine"
-                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-default)] transition-colors flex items-center gap-1 active:scale-95 shadow-sm cursor-pointer"
-                  >
-                    Reset
-                  </button>
+                {/* Side Panel on Desktop & Bottom Sheet on Mobile (Right Column) */}
+                <div className="lg:col-span-5 xl:col-span-4 w-full max-lg:order-last">
+                  <CoachSidePanel
+                    currentSet={currentRecordedSet}
+                    finishedSets={finishedRecordedSets}
+                    totals={workoutTotals}
+                    isSaving={isSaving}
+                    saveError={saveError}
+                    saveSuccess={saveSuccess}
+                    onEndSet={handleEndSet}
+                    onFinishAndSave={handleFinishAndSave}
+                    onRetrySave={handleRetrySave}
+                    onDiscard={handleDiscardWorkout}
+                    onDismissSuccess={handleDismissSuccess}
+                    repsHistory={repsHistory}
+                  />
                 </div>
               </div>
-
-              {/* Voice fallback notification */}
-            {voiceNotice && (
-              <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
-                <span>ℹ️</span>
-                <span>{voiceNotice}</span>
-              </div>
-            )}
-
-        {/* Model initialization alert banner */}
-        {isModelLoading && (
-          <div className="w-full bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-3 flex items-center gap-3 text-xs text-indigo-300">
-            <svg className="animate-spin h-4 w-4 text-indigo-400" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            <span>Loading MediaPipe Pose Landmarker (&apos;full&apos; model, GPU delegate)...</span>
-          </div>
-        )}
-
-        {modelError && (
-          <div className="w-full bg-rose-950/40 border border-rose-500/30 rounded-xl p-3 text-xs text-rose-300">
-            <strong>Model Error:</strong> {modelError}
-          </div>
-        )}
-
-        {/* Live Feedback Banner (Large text) */}
-        {latestFeedback && (
-          <div
-            className={`w-full max-w-4xl rounded-2xl p-4 md:p-5 border shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 transition-all duration-300 ${
-              latestFeedback.isPositive
-                ? 'bg-gradient-to-r from-emerald-950/90 to-teal-950/90 border-emerald-500/50 shadow-emerald-950/50 text-emerald-100'
-                : 'bg-gradient-to-r from-rose-950/90 to-amber-950/90 border-rose-500/50 shadow-rose-950/50 text-rose-100'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">
-                {latestFeedback.isPositive ? '👏' : '⚠️'}
-              </span>
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wider opacity-75">
-                  Live Coach Feedback
-                </span>
-                <p className="text-2xl md:text-3xl font-black tracking-tight mt-0.5">
-                  &ldquo;{latestFeedback.message}&rdquo;
-                </p>
-              </div>
-            </div>
-
-            {lastRep && (
-              <div className="flex items-center gap-3 bg-black/40 px-4 py-2 rounded-xl border border-white/10">
-                <span className="text-xs text-slate-300">Last Rep Score</span>
-                <span
-                  className={`text-2xl font-black font-mono ${
-                    lastRep.score >= 90
-                      ? 'text-emerald-400'
-                      : lastRep.score >= 70
-                      ? 'text-amber-400'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {lastRep.score}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Live Exercise Metric Dashboard */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-4xl">
-          {/* Rep Counter */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              {exercise === 'squat' ? 'Squat Reps' : 'Curl Reps'}
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-4xl font-black text-indigo-400 font-mono tracking-tight">{repCount}</span>
-              <span className="text-xs text-slate-500">completed</span>
-            </div>
-          </div>
-
-          {/* Joint Angle (Knee or Elbow) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              {exercise === 'squat' ? 'Knee Angle' : 'Elbow Angle'}
-            </span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-4xl font-black text-cyan-400 font-mono tracking-tight">
-                {currentAngle !== null ? currentAngle.toFixed(0) : '--'}
-                <span className="text-2xl font-light">°</span>
-              </span>
-              <span className="text-[11px] text-slate-500 capitalize">
-                {activeSide ? `${activeSide.side} ${activeSide.type}` : 'tracking'}
-              </span>
-            </div>
-          </div>
-
-          {/* Current State */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Exercise State</span>
-            <div className="mt-2">
-              <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-semibold border ${stateBadge.color}`}>
-                {stateBadge.text}
-              </span>
-            </div>
-          </div>
-
-          {/* Last Rep Score card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col justify-between shadow-lg">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Last Rep Score</span>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span
-                className={`text-4xl font-black font-mono tracking-tight ${
-                  lastRep
-                    ? lastRep.score >= 90
-                      ? 'text-emerald-400'
-                      : lastRep.score >= 70
-                      ? 'text-amber-400'
-                      : 'text-rose-400'
-                    : 'text-slate-600'
-                }`}
-              >
-                {lastRep ? lastRep.score : '--'}
-              </span>
-              <span className="text-[11px] text-slate-500">/ 100</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Video Player + Overlay */}
-        <div className="relative w-full max-w-4xl flex flex-col items-center">
-          {mode === 'webcam' ? (
-            <Camera
-              ref={cameraRef}
-              onVideoElement={(video) => {
-                unlockAudio();
-                setActiveVideo(video);
-              }}
-            >
-              <Overlay ref={overlayRef} />
-            </Camera>
-          ) : (
-            <VideoFileInput
-              ref={videoInputRef}
-              onVideoElement={(video) => {
-                unlockAudio();
-                setActiveVideo(video);
-              }}
-            >
-              <Overlay ref={overlayRef} />
-            </VideoFileInput>
-          )}
-
-          {/* Warning banner when key landmarks not visible */}
-          {activeVideo && !isBodyVisible && (
-            <div className="absolute top-4 inset-x-4 mx-auto max-w-md bg-amber-500/90 text-slate-950 border border-amber-300/80 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur-md flex items-center justify-center gap-2 z-10 transition-all">
-              <svg className="w-5 h-5 text-slate-950 flex-shrink-0 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-              <span className="font-bold text-xs md:text-sm tracking-wide">
-                {exercise === 'squat'
-                  ? 'Step back, full body in frame'
-                  : 'Keep torso and active arm in frame'}
-              </span>
             </div>
           )}
-        </div>
-
-        {/* Exercise Coaching Tips Banner */}
-        <div className="w-full max-w-4xl bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-base">{exercise === 'squat' ? '💡' : '🎯'}</span>
-            <span>
-              {exercise === 'squat' ? (
-                <>
-                  <strong className="text-slate-200">Squat Form Guide:</strong> Best viewed from side. Squat below parallel (&lt;100°), keep chest up (&lt;45°), and control tempo (&gt;0.8s descent).
-                </>
-              ) : (
-                <>
-                  <strong className="text-slate-200">Bicep Curl Guide:</strong> Front or side view. Pin your elbows (&le;22% drift), avoid body sway (&le;15%), fully extend (&ge;150°), and curl up (&le;55°).
-                </>
-              )}
-            </span>
-          </div>
-          <span className="text-[11px] font-mono text-slate-500">
-            {exercise === 'squat' ? 'Knee angle signal (160°/120°)' : 'Elbow angle signal (140°/70°)'}
-          </span>
-        </div>
-
-        {/* Workout Session Recording & Management Panel */}
-        <WorkoutPanel
-          backendOnline={backendOnline}
-          currentSet={currentRecordedSet}
-          finishedSets={finishedRecordedSets}
-          totals={workoutTotals}
-          isSaving={isSaving}
-          saveError={saveError}
-          saveSuccess={saveSuccess}
-          onEndSet={handleEndSet}
-          onFinishAndSave={handleFinishAndSave}
-          onRetrySave={handleRetrySave}
-          onDiscard={handleDiscardWorkout}
-          onDismissSuccess={handleDismissSuccess}
-        />
-
-        {/* Reps History Table (Last 10 Reps with score & violations) */}
-        {repsHistory.length > 0 && (
-          <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-lg flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <span>📋</span> Last {repsHistory.length} {exercise === 'squat' ? 'Squat' : 'Curl'} Reps History
-              </h3>
-              <span className="text-[11px] text-slate-500">
-                Sorted by most recent
-              </span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 font-semibold">
-                    <th className="py-2 px-3">Rep #</th>
-                    <th className="py-2 px-3">Score</th>
-                    {exercise === 'squat' ? (
-                      <>
-                        <th className="py-2 px-3">Min Knee</th>
-                        <th className="py-2 px-3">Torso Lean</th>
-                        <th className="py-2 px-3">Descent</th>
-                        <th className="py-2 px-3">Start / Bottom (ms)</th>
-                      </>
-                    ) : (
-                      <>
-                        <th className="py-2 px-3">Min Elbow (Height)</th>
-                        <th className="py-2 px-3">Max Elbow (Extension)</th>
-                        <th className="py-2 px-3">Elbow Drift</th>
-                        <th className="py-2 px-3">Body Sway</th>
-                      </>
-                    )}
-                    <th className="py-2 px-3">Feedback / Form Violations</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {repsHistory.map((rep, idx) => {
-                    const repIndex = repCount - idx;
-                    const hasViolations = rep.violations && rep.violations.length > 0;
-                    return (
-                      <tr key={rep.timestamp} className="hover:bg-slate-800/30">
-                        <td className="py-2.5 px-3 font-semibold text-slate-300">
-                          #{repIndex}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
-                              rep.score >= 90
-                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
-                                : rep.score >= 70
-                                ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
-                                : 'bg-rose-950 text-rose-300 border border-rose-700/60'
-                            }`}
-                          >
-                            {rep.score}
-                          </span>
-                        </td>
-                        {exercise === 'squat' ? (
-                          <>
-                            <td className="py-2.5 px-3 text-slate-300">
-                              {rep.metrics.minKneeAngle !== undefined ? `${rep.metrics.minKneeAngle.toFixed(0)}°` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-300">
-                              {rep.metrics.maxTorsoLean !== undefined ? `${rep.metrics.maxTorsoLean.toFixed(0)}°` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-400">
-                              {(rep.metrics.descentDurationMs / 1000).toFixed(1)}s
-                              <span className="block text-[10px] text-slate-500 font-mono">
-                                {Math.round(rep.metrics.descentDurationMs)}ms
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-400 text-[11px] font-mono whitespace-nowrap">
-                              <div>Start: {Math.round(rep.metrics.descentStartMs)}ms</div>
-                              <div>Bottom: {Math.round(rep.metrics.bottomMs)}ms</div>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="py-2.5 px-3 text-slate-300">
-                              {rep.metrics.minElbowAngle !== undefined ? `${rep.metrics.minElbowAngle.toFixed(0)}°` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-300">
-                              {rep.metrics.maxElbowAngle !== undefined ? `${rep.metrics.maxElbowAngle.toFixed(0)}°` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-400">
-                              {rep.metrics.elbowDrift !== undefined ? `${(rep.metrics.elbowDrift * 100).toFixed(1)}%` : '-'}
-                            </td>
-                            <td className="py-2.5 px-3 text-slate-400">
-                              {rep.metrics.bodySway !== undefined ? `${(rep.metrics.bodySway * 100).toFixed(1)}%` : '-'}
-                            </td>
-                          </>
-                        )}
-                        <td className="py-2.5 px-3">
-                          {!hasViolations ? (
-                            <span className="text-emerald-400 text-[11px] font-sans font-medium flex items-center gap-1">
-                              ✓ Good form
-                            </span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1 font-sans">
-                              {rep.violations.map((v) => (
-                                <span
-                                  key={v.ruleId}
-                                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-950/80 text-rose-300 border border-rose-800/50"
-                                  title={`Penalty -${v.penalty}`}
-                                >
-                                  {v.message} (-{v.penalty})
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Debug Panel: Live Line Chart */}
-        <div className="w-full max-w-4xl">
-          <AngleChart
-            data={chartData}
-            upThreshold={activeConfig.upThreshold}
-            downThreshold={activeConfig.downThreshold}
-            currentAngle={currentAngle}
-            width={800}
-            height={200}
-          />
-        </div>
-      </>
-    )}
 
     {currentRoute.view === 'history' &&
       (currentRoute.id ? (

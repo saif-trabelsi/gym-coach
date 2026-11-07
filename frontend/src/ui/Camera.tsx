@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from 'react';
+import { Button } from './kit/Button';
+import { Camera as CameraIcon, CheckCircle2 } from 'lucide-react';
 
 export interface CameraHandle {
   getVideo: () => HTMLVideoElement | null;
@@ -8,6 +10,7 @@ export interface CameraHandle {
 }
 
 interface CameraProps {
+  exercise?: 'squat' | 'bicepCurl';
   onVideoElement?: (video: HTMLVideoElement | null) => void;
   onActiveChange?: (isActive: boolean) => void;
   children?: ReactNode;
@@ -15,7 +18,7 @@ interface CameraProps {
 }
 
 export const Camera = forwardRef<CameraHandle, CameraProps>(
-  ({ onVideoElement, onActiveChange, children, className = '' }, ref) => {
+  ({ exercise = 'squat', onVideoElement, onActiveChange, children, className = '' }, ref) => {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const [isActive, setIsActive] = useState<boolean>(false);
     const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -102,8 +105,8 @@ export const Camera = forwardRef<CameraHandle, CameraProps>(
 
     return (
       <div className={`relative flex flex-col items-center w-full ${className}`}>
-        {/* Video feed container */}
-        <div className="relative w-full aspect-video bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex items-center justify-center">
+        {/* Video feed container (aspect-video) */}
+        <div className="relative w-full aspect-video bg-[var(--bg-app)] rounded-[var(--radius-2xl)] overflow-hidden border border-[var(--border-subtle)] shadow-2xl flex items-center justify-center">
           <video
             ref={videoRef}
             playsInline
@@ -113,101 +116,113 @@ export const Camera = forwardRef<CameraHandle, CameraProps>(
             }`}
           />
 
+          {/* Active Overlay (MediaPipe Canvas + HUD) */}
           {isActive && children}
 
-          {!isActive && (
-            <div className="flex flex-col items-center justify-center p-8 text-center text-slate-400">
-              <div className="w-16 h-16 mb-4 rounded-full bg-slate-800/80 flex items-center justify-center text-slate-400">
+          {/* Camera Permission Denied / Error State */}
+          {error && !isActive && (
+            <div
+              data-testid="coach-camera-denied"
+              className="absolute inset-0 z-20 bg-[var(--bg-surface)]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 sm:p-8 text-center gap-3"
+            >
+              <div className="w-12 h-12 rounded-full bg-[var(--status-danger-bg)] border border-[var(--status-danger-border)] flex items-center justify-center text-[var(--status-danger)]">
+                <CameraIcon className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-[var(--text-primary)]">Camera Access Denied</h3>
+                <p className="text-xs text-[var(--text-secondary)] max-w-sm mt-1">{error}</p>
+                <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
+                  Click the lock or camera icon in your browser address bar to allow permissions.
+                </p>
+              </div>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={startCamera}
+                isLoading={isLoading}
+                className="mt-2"
+              >
+                Try Camera Again
+              </Button>
+            </div>
+          )}
+
+          {/* Idle Onboarding State (Before Camera Starts) */}
+          {!isActive && !error && (
+            <div
+              data-testid="coach-onboarding"
+              className="w-full h-full flex flex-col items-center justify-center p-6 md:p-8 text-center bg-gradient-to-b from-[var(--bg-surface)]/80 to-[var(--bg-app)]"
+            >
+              {/* Athlete Silhouette Vector */}
+              <div className="w-16 h-16 sm:w-20 sm:h-20 mb-2 sm:mb-3 text-[var(--accent)] flex items-center justify-center">
                 <svg
-                  className="w-8 h-8"
+                  viewBox="0 0 100 100"
                   fill="none"
                   stroke="currentColor"
-                  viewBox="0 0 24 24"
+                  className="w-full h-full opacity-90 drop-shadow-md"
+                  xmlns="http://www.w3.org/2000/svg"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
+                  <circle cx="50" cy="18" r="9" strokeWidth="3" />
+                  <path d="M50 27 L48 55" strokeWidth="3.5" strokeLinecap="round" />
+                  <path d="M50 33 L62 44 L56 58" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M48 55 L38 72 L42 92" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <line x1="20" y1="94" x2="80" y2="94" strokeWidth="2" strokeDasharray="4 4" className="text-[var(--text-muted)]" />
                 </svg>
               </div>
-              <p className="text-base font-medium text-slate-300">Webcam is off</p>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                Click Start Camera below to begin live posture tracking
-              </p>
-            </div>
-          )}
 
-          {error && (
-            <div className="absolute top-4 left-4 right-4 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-lg p-3 backdrop-blur-md">
-              <p className="font-semibold">Camera Error:</p>
-              <p className="mt-0.5">{error}</p>
-            </div>
-          )}
-        </div>
+              <h2 className="text-base sm:text-lg font-bold tracking-tight text-[var(--text-primary)]">
+                Ready for {exercise === 'squat' ? 'Squat' : 'Bicep Curl'} Coaching
+              </h2>
 
-        {/* Camera Control Bar */}
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={toggleCamera}
-            disabled={isLoading}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
-              isActive
-                ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/30 ring-2 ring-rose-500/30'
-                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/30 ring-2 ring-indigo-500/30'
-            }`}
-          >
-            {isLoading ? (
-              <>
-                <svg
-                  className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Connecting...
-              </>
-            ) : isActive ? (
-              <>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-                Stop Camera
-              </>
-            ) : (
-              <>
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
+              {/* 4-Point Setup Checklist */}
+              <div className="grid grid-cols-2 gap-2 max-w-sm my-3 text-left text-[11px] text-[var(--text-secondary)]">
+                <div className="flex items-center gap-1.5 bg-[var(--bg-surface-elevated)]/60 px-2 py-1.5 rounded-lg border border-[var(--border-subtle)]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  <span>Full body visible</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-[var(--bg-surface-elevated)]/60 px-2 py-1.5 rounded-lg border border-[var(--border-subtle)]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  <span>Side-on camera view</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-[var(--bg-surface-elevated)]/60 px-2 py-1.5 rounded-lg border border-[var(--border-subtle)]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  <span>
+                    {exercise === 'squat' ? 'Camera at hip height' : 'Camera at chest height'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-[var(--bg-surface-elevated)]/60 px-2 py-1.5 rounded-lg border border-[var(--border-subtle)]">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
+                  <span>Good light & contrast</span>
+                </div>
+              </div>
+
+              <Button
+                size="lg"
+                variant="primary"
+                onClick={startCamera}
+                isLoading={isLoading}
+                leftIcon={<CameraIcon className="w-5 h-5" />}
+                className="mt-1"
+              >
                 Start Camera
-              </>
-            )}
-          </button>
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Camera Control Bar when active */}
+        {isActive && (
+          <div className="mt-3 flex items-center gap-3">
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={toggleCamera}
+              disabled={isLoading}
+            >
+              Stop Camera
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
