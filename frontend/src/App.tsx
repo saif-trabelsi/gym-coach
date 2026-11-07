@@ -47,6 +47,9 @@ import { parseHash, type ParsedRoute } from './analytics/navigation';
 import { HistoryView } from './ui/HistoryView';
 import { SessionDetailView } from './ui/SessionDetailView';
 import { ProgressView } from './ui/ProgressView';
+import { AppShell } from './ui/shell/AppShell';
+import { DesignStyleGuide } from './ui/DesignStyleGuide';
+import { ToastProvider } from './ui/kit';
 
 type InputMode = 'webcam' | 'video';
 export type ExerciseType = 'squat' | 'bicepCurl';
@@ -665,194 +668,126 @@ export default function App() {
   const stateBadge = getStateBadge(currentState, exercise);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Offline banner */}
-      {backendOnline === false && (
-        <div
-          role="alert"
-          data-testid="backend-offline-banner"
-          className="w-full bg-rose-600 text-white text-xs py-1 px-4 text-center font-medium sticky top-0 z-50 shadow"
-        >
-          The backend is not reachable
-        </div>
-      )}
-
-      {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <span className="text-lg font-black text-white">⚡</span>
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
-                AI Gym Coach
-                {currentRoute.view === 'coach' && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                    {exercise === 'squat' ? 'Squat' : 'Bicep Curl'}
-                  </span>
-                )}
-              </h1>
-              <p className="text-xs text-slate-400">
-                Live Coaching • Workout History • Fatigue Curve
-              </p>
-            </div>
-          </div>
-
-          {/* Main Navigation Tabs */}
-          <nav className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
-            <a
-              href="#coach"
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                currentRoute.view === 'coach'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>🎯</span> Coach
-              {workoutTotals.totalReps > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400 text-slate-950">
-                  {workoutTotals.totalReps} in progress
-                </span>
-              )}
-            </a>
-            <a
-              href="#history"
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                currentRoute.view === 'history'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>📜</span> History
-            </a>
-            <a
-              href="#progress"
-              className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
-                currentRoute.view === 'progress'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>📈</span> Progress
-            </a>
-          </nav>
-
+    <ToastProvider>
+      <AppShell
+        currentView={currentRoute.view}
+        backendOnline={backendOnline}
+        inProgressReps={workoutTotals.totalReps}
+      >
+        {/* Main Content Area */}
+        <div className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
           {currentRoute.view === 'coach' && (
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Exercise View Selector */}
-              <div className="flex items-center bg-slate-800/90 p-1 rounded-xl border border-indigo-500/30 shadow-inner">
-                <button
-                  onClick={() => handleExerciseChange('squat')}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                    exercise === 'squat'
-                      ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>🏋️</span> Squat
-                </button>
-                <button
-                  onClick={() => handleExerciseChange('bicepCurl')}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                    exercise === 'bicepCurl'
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-600/30'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span>💪</span> Curl
-                </button>
-              </div>
+            <>
+              {/* Coach Controls Bar */}
+              <div className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-2.5 rounded-[var(--radius-xl)] shadow-sm">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Exercise View Selector */}
+                  <div className="flex items-center bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-[var(--border-subtle)] shadow-inner">
+                    <button
+                      onClick={() => handleExerciseChange('squat')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        exercise === 'squat'
+                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>🏋️</span> Squat
+                    </button>
+                    <button
+                      onClick={() => handleExerciseChange('bicepCurl')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        exercise === 'bicepCurl'
+                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>💪</span> Curl
+                    </button>
+                  </div>
 
-              {/* Mode Switcher */}
-              <div className="flex items-center bg-slate-800/80 p-1 rounded-xl border border-slate-700/70">
-                <button
-                  onClick={() => handleModeChange('webcam')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    mode === 'webcam'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  📹 Webcam
-                </button>
-                <button
-                  onClick={() => handleModeChange('video')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                    mode === 'video'
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  📁 Video
-                </button>
-              </div>
-
-              {/* Audio & Language Controls & Reset */}
-              <div className="flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
-                  aria-label="Language selector"
-                  className="bg-slate-800 text-slate-200 border border-slate-700 rounded-lg px-2 py-1 text-xs font-medium focus:ring-1 focus:ring-indigo-500 outline-none cursor-pointer"
-                >
-                  <option value="en-US">🇺🇸 EN</option>
-                  <option value="fr-FR">🇫🇷 FR</option>
-                  <option value="ar">🇸🇦 AR</option>
-                </select>
-
-                <button
-                  onClick={handleToggleMute}
-                  className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1 ${
-                    isMuted
-                      ? 'bg-rose-950/70 text-rose-300 border-rose-700/50 hover:bg-rose-900/60'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  }`}
-                  title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
-                >
-                  {isMuted ? 'Muted' : 'Voice'}
-                </button>
-
-                <FpsCounter
-                  fps={fps}
-                  delegate={delegate}
-                  inferenceTimeMs={fps > 0 ? inferenceTimeMs : undefined}
-                />
-
-                {/* Pose status pill */}
-                <div
-                  className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center gap-1.5 ${
-                    poseDetected
-                      ? 'bg-cyan-950/70 text-cyan-300 border-cyan-500/30'
-                      : 'bg-slate-900 text-slate-500 border-slate-800'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      poseDetected ? 'bg-cyan-400' : 'bg-slate-600'
-                    }`}
-                  />
-                  {poseDetected ? 'Pose 3D' : 'No pose'}
+                  {/* Mode Switcher */}
+                  <div className="flex items-center bg-[var(--bg-surface-elevated)] p-1 rounded-xl border border-[var(--border-subtle)]">
+                    <button
+                      onClick={() => handleModeChange('webcam')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        mode === 'webcam'
+                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      📹 Webcam
+                    </button>
+                    <button
+                      onClick={() => handleModeChange('video')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        mode === 'video'
+                          ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                    >
+                      📁 Video
+                    </button>
+                  </div>
                 </div>
 
-                <button
-                  onClick={handleReset}
-                  title="Reset rep counter and state machine"
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
+                {/* Audio, Language & Status Controls */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={language}
+                    onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+                    aria-label="Language selector"
+                    className="bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-lg px-2 py-1 text-xs font-medium focus:ring-1 focus:ring-[var(--border-focus)] outline-none cursor-pointer"
+                  >
+                    <option value="en-US">🇺🇸 EN</option>
+                    <option value="fr-FR">🇫🇷 FR</option>
+                    <option value="ar">🇸🇦 AR</option>
+                  </select>
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
-        {currentRoute.view === 'coach' && (
-          <>
-            {/* Voice fallback notification */}
+                  <button
+                    onClick={handleToggleMute}
+                    className={`px-2 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1 cursor-pointer ${
+                      isMuted
+                        ? 'bg-[var(--status-danger-bg)] text-[var(--status-danger)] border-[var(--status-danger-border)]'
+                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border-[var(--border-default)] hover:bg-[var(--bg-surface)]'
+                    }`}
+                    title={isMuted ? 'Unmute voice coaching' : 'Mute voice coaching'}
+                  >
+                    {isMuted ? 'Muted' : 'Voice'}
+                  </button>
+
+                  <FpsCounter
+                    fps={fps}
+                    delegate={delegate}
+                    inferenceTimeMs={fps > 0 ? inferenceTimeMs : undefined}
+                  />
+
+                  {/* Pose status pill */}
+                  <div
+                    className={`text-xs px-2.5 py-1 rounded-lg border font-mono flex items-center gap-1.5 ${
+                      poseDetected
+                        ? 'bg-[var(--score-good-bg)] text-[var(--score-good)] border-[var(--score-good-border)]'
+                        : 'bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border-[var(--border-subtle)]'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        poseDetected ? 'bg-[var(--score-good)]' : 'bg-[var(--text-muted)]'
+                      }`}
+                    />
+                    {poseDetected ? 'Pose 3D' : 'No pose'}
+                  </div>
+
+                  <button
+                    onClick={handleReset}
+                    title="Reset rep counter and state machine"
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-default)] transition-colors flex items-center gap-1 active:scale-95 shadow-sm cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Voice fallback notification */}
             {voiceNotice && (
               <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
                 <span>ℹ️</span>
@@ -1221,15 +1156,18 @@ export default function App() {
         />
       ))}
 
-    {currentRoute.view === 'progress' && (
-      <ProgressView
-        backendOnline={backendOnline}
-        onGoToCoach={() => {
-          window.location.hash = '#coach';
-        }}
-      />
-    )}
-  </main>
-</div>
+        {currentRoute.view === 'progress' && (
+          <ProgressView
+            backendOnline={backendOnline}
+            onGoToCoach={() => {
+              window.location.hash = '#coach';
+            }}
+          />
+        )}
+
+        {currentRoute.view === 'design' && <DesignStyleGuide />}
+      </div>
+    </AppShell>
+  </ToastProvider>
 );
 }

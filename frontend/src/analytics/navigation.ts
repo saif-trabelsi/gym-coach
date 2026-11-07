@@ -1,4 +1,4 @@
-export type AppView = 'coach' | 'history' | 'progress';
+export type AppView = 'coach' | 'history' | 'progress' | 'design';
 
 export interface ParsedRoute {
   view: AppView;
@@ -6,8 +6,9 @@ export interface ParsedRoute {
 }
 
 /**
- * Pure function to parse a URL hash (#coach, #history, #history/12, #progress).
+ * Pure function to parse a URL hash (#coach, #history, #history/12, #progress, #design).
  * Unknown hashes fall back to 'coach'.
+ * #design is only recognized in development mode (import.meta.env.DEV). In production, it falls back to coach.
  * #history/abc or invalid id falls back to the history list without an id.
  */
 export function parseHash(hash: string): ParsedRoute {
@@ -18,6 +19,11 @@ export function parseHash(hash: string): ParsedRoute {
   const clean = hash.startsWith('#') ? hash.slice(1) : hash;
   const parts = clean.split('/').filter(Boolean);
   const root = parts[0]?.toLowerCase();
+
+  // Style guide is only accessible in development builds
+  if (import.meta.env?.DEV && root === 'design') {
+    return { view: 'design' };
+  }
 
   if (root === 'coach') {
     return { view: 'coach' };
