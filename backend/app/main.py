@@ -1,4 +1,6 @@
 import os
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,7 @@ from app.routes.sessions import router as sessions_router
 from app.routes.stats import router as stats_router
 
 MAX_REQUEST_BODY_SIZE = 2 * 1024 * 1024  # 2 MB
+RATE_LIMIT_WRITES_PER_MINUTE = int(os.getenv("RATE_LIMIT_WRITES_PER_MINUTE", "60"))
 
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
@@ -39,13 +42,49 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class PerDeviceRateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_writes_per_minute: int = RATE_LIMIT_WRITES_PER_MINUTE):
+        super().__init__(app)
+        self.max_writes_per_minute = max_writes_per_minute
+        self.device_timestamps = defaultdict(deque)
+
+    async def dispatch(self, request: Request, call_next):
+        # Apply rate limiting to mutating/write endpoints
+        if request.method in ("POST", "PUT", "DELETE") and request.url.path != "/health":
+            now = time.time()
+            device_id = request.headers.get("x-device-id")
+            if not device_id:
+                client_host = request.client.host if request.client else "unknown"
+                device_id = f"ip:{client_host}"
+
+            timestamps = self.device_timestamps[device_id]
+            # Prune timestamps older than 60 seconds
+            while timestamps and now - timestamps[0] > 60:
+                timestamps.popleft()
+
+            if len(timestamps) >= self.max_writes_per_minute:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Too many write requests. Please try again later."},
+                    headers={"Retry-After": "60"},
+                )
+
+            timestamps.append(now)
+
+        return await call_next(request)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     yield
 
 
-app = FastAPI(title="AI Gym Coach API", lifespan=lifespan)
+app = FastAPI(
+    title="AI Gym Coach API",
+    lifespan=lifespan,
+    debug=os.getenv("DEBUG", "false").lower() == "true",
+)
 
 raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
 if raw_allowed_origins:
@@ -57,6 +96,7 @@ else:
     ]
 
 app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(PerDeviceRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,

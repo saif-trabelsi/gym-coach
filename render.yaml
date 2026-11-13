@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: gym-coach-backend
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ALLOWED_ORIGINS
+        value: https://your-gym-coach.vercel.app,http://localhost:5173,http://localhost:3000
+      - key: DATABASE_URL
+        # Optional: Leave unset to use default SQLite data, or connect to Neon / Supabase PostgreSQL URL
+        sync: false
+      - key: GEMINI_API_KEY
+        # Required for live AI workout feedback reports (Google AI Studio Free Tier)
+        sync: false
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_MODEL
+        value: gemini-1.5-flash
+      - key: LLM_FALLBACK_MODELS
+        value: gemini-1.5-pro,gemini-2.0-flash-exp
+      - key: DEVICE_DAILY_QUOTA_REPORTS
+        value: "5"
+      - key: GLOBAL_DAILY_QUOTA_REPORTS
+        value: "100"
+      - key: RATE_LIMIT_WRITES_PER_MINUTE
+        value: "60"

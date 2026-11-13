@@ -7,10 +7,22 @@ from sqlmodel import Session, SQLModel, create_engine
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'gymcoach.db'}")
 
-connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+raw_db_url = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'gymcoach.db'}").strip()
+# Normalize legacy postgres:// prefix to postgresql:// for SQLAlchemy 2.0+
+if raw_db_url.startswith("postgres://"):
+    raw_db_url = raw_db_url.replace("postgres://", "postgresql://", 1)
+
+DATABASE_URL = raw_db_url
+
+engine_kwargs = {}
+if "sqlite" in DATABASE_URL:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 300
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 
 @event.listens_for(Engine, "connect")

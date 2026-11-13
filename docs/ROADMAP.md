@@ -10,7 +10,7 @@ D.4 Progress, polish, accessibility, share image: DONE
 D.5 Optional: full UI translation EN/FR/AR with RTL: TODO (only if I ask)
 6.1 Evaluation: DONE
 6.2 Per-device privacy and quotas: DONE
-6.3 Docker: TODO
+6.3 Docker: DONE
 6.4 Deploy: TODO
 6.5 README, CI and demo video kit: TODO
 Order: 5.4, D.1, D.2, D.3, D.4, (D.5), 6.1, 6.2, 6.3, 6.4, 6.5.
