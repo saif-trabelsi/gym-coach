@@ -84,15 +84,6 @@ export const AppShell: React.FC<AppShellProps> = ({
     { id: 'progress', label: 'Progress', href: '#progress', icon: <TrendingUp className="w-4 h-4" /> },
   ];
 
-  if (import.meta.env?.DEV) {
-    navItems.push({
-      id: 'design',
-      label: 'Design',
-      href: '#design',
-      icon: <Activity className="w-4 h-4" />,
-    });
-  }
-
   return (
     <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] flex flex-col font-sans transition-colors duration-200">
       {/* Accessible skip to main content link */}
@@ -187,14 +178,14 @@ export const AppShell: React.FC<AppShellProps> = ({
       </header>
 
       {/* Main Content Landmark */}
-      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col focus:outline-none pb-20 sm:pb-8">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col focus:outline-none pb-28 sm:pb-8">
         {children}
       </main>
 
       {/* Bottom Tab Bar (mobile < 640px) */}
       <nav
         aria-label="Mobile Navigation"
-        className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-surface-glass)] backdrop-blur-lg border-t border-[var(--border-subtle)] px-2 py-1.5 flex items-center justify-around"
+        className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-[var(--bg-surface-glass)] backdrop-blur-lg border-t border-[var(--border-subtle)] px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] flex items-center justify-around"
       >
         {navItems.map((item) => {
           const isActive = currentView === item.id;
@@ -237,9 +228,6 @@ export const AppShell: React.FC<AppShellProps> = ({
             >
               Privacy & Data
             </button>
-            {import.meta.env?.DEV && (
-              <a href="#design" className="hover:text-[var(--text-primary)] font-mono text-[11px]">#design</a>
-            )}
           </div>
         </div>
       </footer>

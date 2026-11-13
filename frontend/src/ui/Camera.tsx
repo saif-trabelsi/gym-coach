@@ -105,8 +105,8 @@ export const Camera = forwardRef<CameraHandle, CameraProps>(
 
     return (
       <div className={`relative flex flex-col items-center w-full ${className}`}>
-        {/* Video feed container (aspect-video) */}
-        <div className="relative w-full aspect-video bg-[var(--bg-app)] rounded-[var(--radius-2xl)] overflow-hidden border border-[var(--border-subtle)] shadow-2xl flex items-center justify-center">
+        {/* Video feed container (aspect-video when active, min-h-[380px] when idle on mobile to prevent clipping) */}
+        <div className={`relative w-full ${isActive ? 'aspect-video' : 'min-h-[380px] sm:min-h-0 sm:aspect-video'} bg-[var(--bg-app)] rounded-[var(--radius-2xl)] overflow-hidden border border-[var(--border-subtle)] shadow-2xl flex items-center justify-center`}>
           <video
             ref={videoRef}
             playsInline

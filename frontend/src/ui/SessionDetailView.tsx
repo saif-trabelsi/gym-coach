@@ -563,7 +563,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
 
               {/* Worst rep replay button */}
               {worstReplayRep && (
-                <div className="flex items-center justify-start">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button
                     variant="secondary"
                     size="sm"
@@ -572,6 +572,9 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                   >
                     <span>Replay worst rep</span>
                   </Button>
+                  <span className="text-xs text-[var(--text-secondary)]">
+                    Tip: Click ▶ on any rep in the table to replay it
+                  </span>
                 </div>
               )}
 
@@ -638,7 +641,11 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                       return (
                         <tr
                           key={rep.id || rep.index}
-                          className="hover:bg-[var(--bg-surface-elevated)]/60 transition-colors"
+                          className={
+                            activeReplay?.repId === rep.id
+                              ? 'bg-[var(--accent)]/10 font-bold transition-colors'
+                              : 'hover:bg-[var(--bg-surface-elevated)]/60 transition-colors'
+                          }
                         >
                           <td className="py-2.5 px-3 font-semibold text-[var(--text-primary)]">
                             <div className="flex items-center gap-2">
@@ -647,11 +654,16 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleOpenReplay(rep, wSet.exercise)}
-                                  title="Replay rep"
+                                  title={`Replay rep ${rep.index}`}
                                   aria-label={`Replay rep ${rep.index}`}
-                                  className="p-1 rounded-md bg-[var(--bg-surface)] hover:bg-[var(--accent)] text-[var(--accent)] hover:text-[var(--accent-contrast)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
+                                  className={
+                                    activeReplay?.repId === rep.id
+                                      ? 'inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--accent)] text-[var(--accent-contrast)] font-sans text-[11px] font-semibold border border-[var(--accent)] shadow-sm cursor-pointer'
+                                      : 'inline-flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--bg-surface)] hover:bg-[var(--accent)] text-[var(--accent)] hover:text-[var(--accent-contrast)] font-sans text-[11px] font-semibold border border-[var(--border-subtle)] transition-colors cursor-pointer'
+                                  }
                                 >
-                                  <Play className="w-3 h-3 fill-current" />
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                  <span>Replay</span>
                                 </button>
                               )}
                             </div>

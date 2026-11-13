@@ -217,6 +217,29 @@ describe('Task 5.3b - Worst-Rep Skeleton Replay & FrameBuffer (replay.test.ts)',
     expect(payload!.sets[1].reps.filter((r) => r.replay !== undefined)).toHaveLength(1);
   });
 
+  // f2. Recorder with keepAllReplays: true preserves replays on every rep in the set
+  it('f2. recorder with keepAllReplays: true preserves replay on all reps regardless of score or violations', () => {
+    const recorder = new WorkoutRecorder({ clock: () => 1793700000000, keepAllReplays: true });
+
+    const replay1 = makeDummyReplay(10);
+    const replay2 = makeDummyReplay(15);
+    const replay3 = makeDummyReplay(20);
+
+    recorder.addRep('squat', { score: 95, violations: [] }, replay1);
+    recorder.addRep('squat', { score: 60, violations: ['depth'] }, replay2);
+    recorder.addRep('squat', { score: 85, violations: [] }, replay3);
+
+    expect(recorder.getSetReplayCount(0)).toBe(3);
+    expect(recorder.getReplaysCount()).toBe(3);
+
+    const payload = recorder.buildPayload();
+    expect(payload).not.toBeNull();
+    expect(payload!.sets[0].reps).toHaveLength(3);
+    expect(payload!.sets[0].reps[0].replay).toBeDefined();
+    expect(payload!.sets[0].reps[1].replay).toBeDefined();
+    expect(payload!.sets[0].reps[2].replay).toBeDefined();
+  });
+
   // g. highlight indices equal what the live overlay mapping returns for the same violation and side
   // (call the same function in the test), for depth on the left leg, back on the right side, and for a curl elbow drift.
   it('g. highlight indices match live overlay mapping for depth (left leg), back (right side), curl elbow drift', () => {

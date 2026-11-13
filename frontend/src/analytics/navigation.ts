@@ -1,4 +1,4 @@
-export type AppView = 'coach' | 'history' | 'progress' | 'design' | 'not-found';
+export type AppView = 'coach' | 'history' | 'progress' | 'not-found';
 
 export interface ParsedRoute {
   view: AppView;
@@ -19,8 +19,6 @@ export function getTitleForRoute(route: ParsedRoute): string {
         : 'Workout History | AI Gym Coach';
     case 'progress':
       return 'Progress Analytics | AI Gym Coach';
-    case 'design':
-      return 'Design Style Guide | AI Gym Coach';
     case 'not-found':
       return 'Page Not Found | AI Gym Coach';
     default:
@@ -29,10 +27,8 @@ export function getTitleForRoute(route: ParsedRoute): string {
 }
 
 /**
- * Pure function to parse a URL hash (#coach, #history, #history/12, #progress, #design).
+ * Pure function to parse a URL hash (#coach, #history, #history/12, #progress).
  * Empty hash or '#coach' defaults to 'coach'.
- * Unknown hashes return 'not-found'.
- * #design is only recognized in development mode (import.meta.env.DEV).
  * #history/abc or invalid id falls back to the history list without an id.
  */
 export function parseHash(hash: string): ParsedRoute {
@@ -47,14 +43,6 @@ export function parseHash(hash: string): ParsedRoute {
   }
 
   const root = parts[0]?.toLowerCase();
-
-  // Style guide is only accessible in development builds; in production falls back to coach
-  if (root === 'design') {
-    if (import.meta.env?.DEV) {
-      return { view: 'design' };
-    }
-    return { view: 'coach' };
-  }
 
   if (root === 'coach') {
     return { view: 'coach' };

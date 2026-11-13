@@ -67,14 +67,32 @@ interface ActiveSet {
   reps: RecordedRep[];
 }
 
+export interface WorkoutRecorderOptions {
+  clock?: () => number;
+  keepAllReplays?: boolean;
+}
+
 export class WorkoutRecorder {
   private clock: () => number;
+  private keepAllReplays: boolean;
   private activeSet: ActiveSet | null = null;
   private finishedSetsList: RecordedSet[] = [];
   private cachedSessionEndedAt: string | null = null;
 
-  constructor(clock: () => number = Date.now) {
-    this.clock = clock;
+  constructor(
+    clockOrOptions?: (() => number) | WorkoutRecorderOptions,
+    options?: WorkoutRecorderOptions
+  ) {
+    if (typeof clockOrOptions === 'function') {
+      this.clock = clockOrOptions;
+      this.keepAllReplays = options?.keepAllReplays ?? false;
+    } else if (clockOrOptions && typeof clockOrOptions === 'object') {
+      this.clock = clockOrOptions.clock ?? Date.now;
+      this.keepAllReplays = clockOrOptions.keepAllReplays ?? false;
+    } else {
+      this.clock = Date.now;
+      this.keepAllReplays = options?.keepAllReplays ?? false;
+    }
   }
 
   /**
@@ -125,26 +143,31 @@ export class WorkoutRecorder {
 
     this.activeSet.reps.push(recordedRep);
 
-    // Replay management: per set, keep the replay only for current lowest-score rep (earliest on ties).
-    // Discard others immediately to keep memory strictly bounded.
+    // Replay management:
+    // If keepAllReplays is enabled, keep replay on every rep that provides one.
+    // Otherwise (default legacy behavior), keep the replay only for current lowest-score rep (earliest on ties).
     if (replay) {
-      let worstRep = this.activeSet.reps[0];
-      for (let i = 1; i < this.activeSet.reps.length; i++) {
-        if (this.activeSet.reps[i].score < worstRep.score) {
-          worstRep = this.activeSet.reps[i];
-        }
-      }
-
-      if (recordedRep === worstRep) {
-        // Discard replays from any other rep in this set
-        for (const r of this.activeSet.reps) {
-          if (r !== recordedRep) {
-            delete r.replay;
+      if (this.keepAllReplays) {
+        recordedRep.replay = replay;
+      } else {
+        let worstRep = this.activeSet.reps[0];
+        for (let i = 1; i < this.activeSet.reps.length; i++) {
+          if (this.activeSet.reps[i].score < worstRep.score) {
+            worstRep = this.activeSet.reps[i];
           }
         }
-        recordedRep.replay = replay;
+
+        if (recordedRep === worstRep) {
+          // Discard replays from any other rep in this set
+          for (const r of this.activeSet.reps) {
+            if (r !== recordedRep) {
+              delete r.replay;
+            }
+          }
+          recordedRep.replay = replay;
+        }
+        // If recordedRep is NOT worstRep, incoming replay is discarded immediately
       }
-      // If recordedRep is NOT worstRep, incoming replay is discarded immediately
     }
   }
 
@@ -219,14 +242,20 @@ export class WorkoutRecorder {
             timestamp: r.timestamp,
           };
 
-          // Attach replay only to the worst rep of each set and only if that rep has at least one violation
-          if (
-            r === worstRep &&
-            worstRep.violations &&
-            worstRep.violations.length > 0 &&
-            worstRep.replay
-          ) {
-            item.replay = worstRep.replay;
+          if (this.keepAllReplays) {
+            if (r.replay) {
+              item.replay = r.replay;
+            }
+          } else {
+            // Attach replay only to the worst rep of each set and only if that rep has at least one violation
+            if (
+              r === worstRep &&
+              worstRep.violations &&
+              worstRep.violations.length > 0 &&
+              worstRep.replay
+            ) {
+              item.replay = worstRep.replay;
+            }
           }
 
           return item as unknown as RecordedRep;

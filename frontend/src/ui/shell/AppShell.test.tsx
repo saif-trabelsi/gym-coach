@@ -49,21 +49,9 @@ describe('AppShell layout and navigation', () => {
     expect(banner.textContent).toContain('The backend is not reachable');
   });
 
-  it('ensures #design style guide view is absent from production builds', () => {
-    // In dev mode (default in vitest), parseHash('#design') yields { view: 'design' }
-    const devRoute = parseHash('#design');
-    expect(devRoute.view).toBe('design');
-
-    // Simulate production environment where import.meta.env.DEV is false
-    const originalDev = import.meta.env.DEV;
-    try {
-      (import.meta.env as any).DEV = false;
-      const prodRoute = parseHash('#design');
-      // When DEV is false, '#design' must fall back to 'coach'
-      expect(prodRoute.view).toBe('coach');
-    } finally {
-      (import.meta.env as any).DEV = originalDev;
-    }
+  it('ensures unknown hashes fall back to coach', () => {
+    const route = parseHash('#unknown-page');
+    expect(route.view).toBe('coach');
   });
 
   it('opens privacy & device data modal with export and delete actions', () => {

@@ -110,7 +110,6 @@ describe('ProgressView & Navigation Enhancements (Task D.4)', () => {
       expect(getTitleForRoute({ view: 'history' })).toContain('Workout History');
       expect(getTitleForRoute({ view: 'history', id: 42 })).toContain('Session #42 Details');
       expect(getTitleForRoute({ view: 'progress' })).toContain('Progress Analytics');
-      expect(getTitleForRoute({ view: 'design' })).toContain('Design Style Guide');
       expect(getTitleForRoute({ view: 'not-found' })).toContain('Page Not Found');
     });
 

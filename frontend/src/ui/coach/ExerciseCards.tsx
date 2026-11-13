@@ -33,7 +33,7 @@ export const ExerciseCards: React.FC<ExerciseCardsProps> = ({
   ];
 
   return (
-    <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Exercise Selection">
+    <div className="w-full grid grid-cols-2 gap-2 sm:gap-3" role="radiogroup" aria-label="Exercise Selection">
       {exercises.map((item) => {
         const isSelected = selected === item.id;
         return (
@@ -44,16 +44,16 @@ export const ExerciseCards: React.FC<ExerciseCardsProps> = ({
             aria-checked={isSelected}
             disabled={disabled}
             onClick={() => onSelect(item.id)}
-            className={`p-4 rounded-[var(--radius-xl)] border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`p-3 sm:p-4 rounded-[var(--radius-xl)] border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-2.5 sm:gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:opacity-50 disabled:cursor-not-allowed ${
               isSelected
                 ? 'bg-[var(--accent-subtle)] border-[var(--accent)] shadow-md shadow-[var(--accent)]/10 ring-1 ring-[var(--accent)]'
                 : 'bg-[var(--bg-surface)] border-[var(--border-subtle)] hover:border-[var(--border-default)] hover:bg-[var(--bg-surface-elevated)]'
             }`}
           >
             <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2 sm:gap-2.5">
                 <div
-                  className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
+                  className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
                     isSelected
                       ? 'bg-[var(--accent)] text-[var(--accent-contrast)]'
                       : 'bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)]'
@@ -61,15 +61,15 @@ export const ExerciseCards: React.FC<ExerciseCardsProps> = ({
                 >
                   {item.icon}
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-[var(--text-primary)]">{item.name}</h3>
-                  <span className="text-[11px] text-[var(--text-muted)] font-medium">
+                <div className="min-w-0">
+                  <h3 className="font-bold text-xs sm:text-sm text-[var(--text-primary)] truncate">{item.name}</h3>
+                  <span className="text-[10px] sm:text-[11px] text-[var(--text-muted)] font-medium block truncate">
                     {item.tagline}
                   </span>
                 </div>
               </div>
               <span
-                className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border flex items-center justify-center shrink-0 transition-all ${
                   isSelected
                     ? 'border-[var(--accent)] bg-[var(--accent)]'
                     : 'border-[var(--border-default)] bg-transparent'
@@ -79,14 +79,14 @@ export const ExerciseCards: React.FC<ExerciseCardsProps> = ({
               </span>
             </div>
 
-            <div className="pt-2 border-t border-[var(--border-subtle)]/60 flex flex-col gap-1 text-[11px]">
+            <div className={`pt-2 border-t border-[var(--border-subtle)]/60 flex flex-col gap-1 text-[10px] sm:text-[11px] ${isSelected ? 'flex' : 'hidden sm:flex'}`}>
               <div className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-                <span className="text-[var(--accent)] font-bold">📷</span>
-                <span>{item.cameraHint}</span>
+                <span className="text-[var(--accent)] font-bold shrink-0">📷</span>
+                <span className="truncate sm:whitespace-normal">{item.cameraHint}</span>
               </div>
               <div className="flex items-center gap-1.5 text-[var(--text-muted)]">
-                <span className="font-semibold text-[var(--text-secondary)]">Target:</span>
-                <span>{item.targetDepth}</span>
+                <span className="font-semibold text-[var(--text-secondary)] shrink-0">Target:</span>
+                <span className="truncate sm:whitespace-normal">{item.targetDepth}</span>
               </div>
             </div>
           </button>

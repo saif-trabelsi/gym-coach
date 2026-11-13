@@ -62,9 +62,6 @@ const SessionDetailView = lazy(() =>
 const ProgressView = lazy(() =>
   import('./ui/ProgressView').then((m) => ({ default: m.ProgressView }))
 );
-const DesignStyleGuide = lazy(() =>
-  import('./ui/DesignStyleGuide').then((m) => ({ default: m.DesignStyleGuide }))
-);
 
 function ViewFallback() {
   return (
@@ -176,8 +173,10 @@ export default function App() {
     URL.revokeObjectURL(url);
   }, [exercise]);
 
-  // Workout Recording state & persistent recorder
-  const workoutRecorderRef = useRef<WorkoutRecorder>(new WorkoutRecorder());
+  // Workout Recording state & persistent recorder (keep replays on every rep)
+  const workoutRecorderRef = useRef<WorkoutRecorder>(
+    new WorkoutRecorder({ keepAllReplays: true })
+  );
   const frameBufferRef = useRef<FrameBuffer>(new FrameBuffer());
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [currentRecordedSet, setCurrentRecordedSet] = useState<{
@@ -874,12 +873,6 @@ export default function App() {
                     window.location.hash = '#coach';
                   }}
                 />
-              </div>
-            )}
-
-            {currentRoute.view === 'design' && (
-              <div className="w-full page-enter">
-                <DesignStyleGuide />
               </div>
             )}
 
