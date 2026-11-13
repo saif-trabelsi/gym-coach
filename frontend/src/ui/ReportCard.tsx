@@ -20,6 +20,21 @@ import {
   formatReportAsText,
 } from '../reports/format';
 import { getTranslatedMessage, type SupportedLanguage } from '../feedback/messages';
+import { Card } from './kit/Card';
+import { Button } from './kit/Button';
+import { Badge } from './kit/Badge';
+import { Spinner } from './kit/Spinner';
+import { SegmentedControl, type SegmentedOption } from './kit/SegmentedControl';
+import {
+  Sparkles,
+  Bot,
+  Check,
+  AlertCircle,
+  Target,
+  CheckCircle2,
+  Lightbulb,
+  Zap,
+} from 'lucide-react';
 
 // In-memory cache per (session id, language) across component mounts in this page visit
 const reportMemoryCache = new Map<string, ReportRead>();
@@ -144,7 +159,6 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
     const calcRemaining = () => {
       const nowMs = Date.now();
-      // Tolerant to clock differences: if nowMs < createdAtMs, elapsed is 0, remaining is 10
       const elapsed = Math.max(0, (nowMs - createdAtMs) / 1000);
       if (elapsed >= 10.0) return 0;
       return Math.min(10, Math.max(0, Math.ceil(10.0 - elapsed)));
@@ -240,59 +254,83 @@ export const ReportCard: React.FC<ReportCardProps> = ({
         state.error.message.toLowerCase().includes('not reachable') ||
         state.error.message.toLowerCase().includes('failed to fetch')));
 
+  const languageOptions: SegmentedOption<ReportLanguage>[] = [
+    {
+      value: 'en',
+      label: 'EN',
+      icon: selectedLanguage === 'en' ? <Check className="w-3 h-3 text-[var(--accent)]" /> : undefined,
+      disabled: isButtonsDisabled,
+    },
+    {
+      value: 'fr',
+      label: 'FR',
+      icon: selectedLanguage === 'fr' ? <Check className="w-3 h-3 text-[var(--accent)]" /> : undefined,
+      disabled: isButtonsDisabled,
+    },
+    {
+      value: 'ar',
+      label: 'AR',
+      icon: selectedLanguage === 'ar' ? <Check className="w-3 h-3 text-[var(--accent)]" /> : undefined,
+      disabled: isButtonsDisabled,
+    },
+  ];
+
   return (
-    <div
+    <Card
       data-testid="report-card"
-      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col gap-5 text-slate-200"
+      className="p-5 shadow-sm flex flex-col gap-5 border-[var(--border-subtle)]"
     >
       {/* Top Header Strip: Title, Language Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">🤖</span>
-          <h2 className="text-base font-bold text-white">AI Coaching Report</h2>
+          <div className="p-1.5 rounded-[var(--radius-lg)] bg-[var(--accent)]/10 text-[var(--accent)]">
+            <Bot className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-[var(--text-primary)]">
+              AI Coaching Report
+            </h2>
+            <p className="text-[11px] text-[var(--text-secondary)]">
+              Personalized biomechanical analysis and progress insights
+            </p>
+          </div>
         </div>
 
-        {/* Language selector (EN, FR, AR) */}
-        <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/80">
-          {(['en', 'fr', 'ar'] as ReportLanguage[]).map((lang) => (
-            <button
-              key={lang}
-              onClick={() => handleLanguageChange(lang)}
-              disabled={isButtonsDisabled}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg uppercase transition-all ${
-                selectedLanguage === lang
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              } ${isButtonsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              {lang}
-            </button>
-          ))}
-        </div>
+        {/* Language selector (EN, FR, AR) as SegmentedControl with checkmarks */}
+        <SegmentedControl
+          value={selectedLanguage}
+          onChange={handleLanguageChange}
+          options={languageOptions}
+          size="sm"
+          ariaLabel="Report language"
+        />
       </div>
 
       {/* Loading Cache State */}
       {state.status === 'loadingCache' && (
-        <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
-          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="py-8 flex flex-col items-center justify-center gap-2 text-[var(--text-secondary)]">
+          <Spinner size="md" />
           <span className="text-xs">Checking for coaching report...</span>
         </div>
       )}
 
       {/* Not Generated State (404) */}
       {state.status === 'notGenerated' && (
-        <div className="py-6 flex flex-col items-center justify-center gap-3 text-center">
-          <span className="text-3xl">📋</span>
+        <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
+          <div className="p-3 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[var(--accent)]">
+            <Sparkles className="w-6 h-6" />
+          </div>
           <div>
-            <h3 className="text-sm font-semibold text-white">No Report Generated Yet</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm">
+            <h3 className="text-sm font-bold text-[var(--text-primary)]">No Report Generated Yet</h3>
+            <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-sm">
               Generate an in-depth coaching report analyzing your form, fatigue trend, and areas for improvement.
             </p>
           </div>
           <button
+            type="button"
             onClick={() => handleGenerate(false)}
             disabled={isButtonsDisabled || cooldownSeconds > 0}
-            className="mt-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-2 disabled:opacity-50"
+            className="mt-1 px-4 py-2 bg-[var(--accent)] hover:opacity-90 text-[var(--accent-contrast)] text-xs font-bold rounded-[var(--radius-xl)] shadow transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
           >
             <span>✨</span> Generate
           </button>
@@ -302,8 +340,8 @@ export const ReportCard: React.FC<ReportCardProps> = ({
       {/* Generating State */}
       {state.status === 'generating' && (
         <div className="py-8 flex flex-col items-center justify-center gap-3 text-center">
-          <div className="w-6 h-6 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs font-medium text-slate-300">
+          <Spinner size="lg" />
+          <p className="text-xs font-medium text-[var(--text-secondary)]">
             Writing your report, this can take up to 20 seconds
           </p>
         </div>
@@ -311,11 +349,11 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
       {/* Rate Limited State */}
       {state.status === 'rateLimited' && (
-        <div className="py-6 flex flex-col items-center justify-center gap-3 text-center bg-amber-950/20 border border-amber-900/40 rounded-xl p-4">
+        <div className="py-6 flex flex-col items-center justify-center gap-3 text-center bg-[var(--status-warning-bg)] border border-[var(--status-warning-border)] rounded-[var(--radius-xl)] p-4">
           <span className="text-2xl">⏳</span>
           <div>
-            <h3 className="text-sm font-bold text-amber-300">Rate Limit Reached</h3>
-            <p className="text-xs text-amber-200/80 mt-1 font-mono">
+            <h3 className="text-sm font-bold text-[var(--status-warning)]">Rate Limit Reached</h3>
+            <p className="text-xs text-[var(--text-secondary)] mt-1 font-mono">
               Please wait {state.retryAfterSeconds} seconds
             </p>
           </div>
@@ -324,28 +362,25 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
       {/* Error State */}
       {state.status === 'error' && (
-        <div className="py-6 flex flex-col items-center justify-center gap-3 text-center bg-rose-950/20 border border-rose-900/40 rounded-xl p-4">
+        <div className="py-6 flex flex-col items-center justify-center gap-3 text-center bg-[var(--status-danger-bg)] border border-[var(--status-danger-border)] rounded-[var(--radius-xl)] p-4">
           <span className="text-2xl">⚠️</span>
           <div>
-            <h3 className="text-sm font-bold text-rose-300">
+            <h3 className="text-sm font-bold text-[var(--status-danger)]">
               {isUnreachableError
                 ? 'The backend is not reachable'
                 : state.error instanceof ServerError
                 ? 'Server error'
                 : 'Failed to load report'}
             </h3>
-            <p className="text-xs text-rose-200/80 mt-1 max-w-md">
+            <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-md">
               {isUnreachableError
                 ? 'The backend is not reachable. Please check your connection and ensure the server is running.'
                 : state.error?.message || 'An unexpected error occurred while communicating with the server.'}
             </p>
           </div>
-          <button
-            onClick={() => loadReports()}
-            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all"
-          >
+          <Button variant="secondary" size="sm" onClick={() => loadReports()}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
@@ -357,17 +392,17 @@ export const ReportCard: React.FC<ReportCardProps> = ({
             {/* Badges */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {!state.report.is_fallback ? (
-                <span className="px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 font-medium flex items-center gap-1.5">
+                <span className="px-3 py-1 rounded-full bg-[var(--accent)]/10 border border-[var(--accent)]/30 text-[var(--accent)] font-medium flex items-center gap-1.5">
                   <span>✨</span>
                   <span>AI-written, numbers computed from your data</span>
-                  <span className="font-mono text-[11px] text-emerald-400">({state.report.model})</span>
+                  <span className="font-mono text-[11px] opacity-80">({state.report.model})</span>
                 </span>
               ) : (
-                <span className="px-3 py-1 rounded-full bg-amber-950/60 border border-amber-800/60 text-amber-300 font-medium flex items-center gap-1.5">
+                <span className="px-3 py-1 rounded-full bg-[var(--status-warning-bg)] border border-[var(--status-warning-border)] text-[var(--status-warning)] font-medium flex items-center gap-1.5">
                   <span>⚙️</span>
                   <span>Generated from your stats (offline mode)</span>
                   {state.report.fallback_reason && (
-                    <span className="text-[11px] text-amber-400">
+                    <span className="text-[11px] opacity-90">
                       — {fallbackReasonLabel(state.report.fallback_reason)}
                     </span>
                   )}
@@ -378,9 +413,10 @@ export const ReportCard: React.FC<ReportCardProps> = ({
             {/* Action Buttons: Copy, Regenerate / Try AI again */}
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handleCopy}
                 disabled={isButtonsDisabled}
-                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 rounded-[var(--radius-lg)] bg-[var(--bg-surface-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span>📋</span>
                 <span>{copied ? 'Copied' : 'Copy report'}</span>
@@ -388,9 +424,10 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
               {!state.report.is_fallback ? (
                 <button
+                  type="button"
                   onClick={() => handleGenerate(true)}
                   disabled={isButtonsDisabled || cooldownSeconds > 0}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-[var(--radius-lg)] bg-[var(--accent)] hover:opacity-90 text-[var(--accent-contrast)] text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <span>🔄</span>
                   <span>
@@ -400,9 +437,10 @@ export const ReportCard: React.FC<ReportCardProps> = ({
               ) : (
                 canRetryAI(state.report.fallback_reason) && (
                   <button
+                    type="button"
                     onClick={() => handleGenerate(true)}
                     disabled={isButtonsDisabled || cooldownSeconds > 0}
-                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                    className="px-3 py-1.5 rounded-[var(--radius-lg)] bg-[var(--accent)] hover:opacity-90 text-[var(--accent-contrast)] text-xs font-semibold transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <span>🔄</span>
                     <span>
@@ -417,29 +455,49 @@ export const ReportCard: React.FC<ReportCardProps> = ({
           {/* Stats Strip built ONLY from stats object */}
           <div
             data-testid="stats-strip"
-            className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-800/60 border border-slate-700/60 rounded-xl p-3.5"
+            className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3.5"
           >
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-semibold text-slate-400">Total Reps</span>
-              <span data-testid="stat-total-reps" className="text-base font-bold text-cyan-400 font-mono">
+              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+                Total Reps
+              </span>
+              <span
+                data-testid="stat-total-reps"
+                className="text-base font-bold text-cyan-400 font-mono mt-0.5"
+              >
                 {state.report.stats.total_reps}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-semibold text-slate-400">Avg Score</span>
-              <span data-testid="stat-avg-score" className="text-base font-bold text-emerald-400 font-mono">
+              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+                Avg Score
+              </span>
+              <span
+                data-testid="stat-avg-score"
+                className="text-base font-bold text-[var(--accent)] font-mono mt-0.5"
+              >
                 {state.report.stats.average_score}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-semibold text-slate-400">Duration</span>
-              <span data-testid="stat-duration" className="text-base font-bold text-indigo-400 font-mono">
+              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+                Duration
+              </span>
+              <span
+                data-testid="stat-duration"
+                className="text-base font-bold text-[var(--text-primary)] font-mono mt-0.5"
+              >
                 {state.report.stats.duration_minutes} min
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] uppercase font-semibold text-slate-400">Top Issues</span>
-              <div data-testid="stat-top-issues" className="text-xs text-slate-300 font-mono truncate">
+              <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+                Top Issues
+              </span>
+              <div
+                data-testid="stat-top-issues"
+                className="text-xs text-[var(--text-secondary)] font-mono truncate mt-0.5"
+              >
                 {state.report.stats.top_issues && state.report.stats.top_issues.length > 0 ? (
                   state.report.stats.top_issues.map((issue) => (
                     <div key={issue.rule}>
@@ -447,7 +505,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
                     </div>
                   ))
                 ) : (
-                  <span className="text-slate-500">None</span>
+                  <span className="text-[var(--text-muted)]">None</span>
                 )}
               </div>
             </div>
@@ -458,25 +516,27 @@ export const ReportCard: React.FC<ReportCardProps> = ({
             data-testid="narrative-container"
             dir={selectedLanguage === 'ar' ? 'rtl' : 'ltr'}
             lang={selectedLanguage === 'ar' ? 'ar' : selectedLanguage}
-            className="flex flex-col gap-4 text-xs leading-relaxed"
+            className="flex flex-col gap-4 text-xs leading-relaxed text-[var(--text-primary)]"
           >
             {/* Summary */}
-            <div className="text-slate-200">
-              <p className="text-sm font-medium text-slate-100">
+            <div className="p-3.5 bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)]">
+              <p className="text-sm font-medium text-[var(--text-primary)] leading-relaxed">
                 <bdi>{state.report.narrative.summary}</bdi>
               </p>
             </div>
 
             {/* Strengths */}
             {state.report.narrative.strengths && state.report.narrative.strengths.length > 0 && (
-              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-1.5">
-                <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>💪</span> Strengths
+              <div className="bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3.5 flex flex-col gap-2">
+                <span className="text-[11px] font-bold text-[var(--status-success)] uppercase tracking-wider flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Strengths</span>
                 </span>
-                <ul className="list-disc list-inside space-y-1 text-slate-300">
+                <ul className="space-y-1.5 text-[var(--text-secondary)] ps-1">
                   {state.report.narrative.strengths.map((strength, i) => (
-                    <li key={i}>
-                      <bdi>{strength}</bdi>
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-[var(--status-success)] shrink-0 font-bold">•</span>
+                      <bdi className="flex-1">{strength}</bdi>
                     </li>
                   ))}
                 </ul>
@@ -485,29 +545,30 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
             {/* Form Issues (with localized rule headings & action tips) */}
             {state.report.narrative.issues && state.report.narrative.issues.length > 0 && (
-              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-2.5">
-                <span className="text-[11px] font-semibold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>🎯</span> Key Form Issues
+              <div className="bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3.5 flex flex-col gap-3">
+                <span className="text-[11px] font-bold text-[var(--status-danger)] uppercase tracking-wider flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Key Form Issues</span>
                 </span>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   {state.report.narrative.issues.map((issue) => (
                     <div
                       key={issue.rule}
-                      className="border border-rose-900/30 bg-rose-950/10 rounded-lg p-2.5 flex flex-col gap-1"
+                      className="border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] rounded-[var(--radius-lg)] p-3 flex flex-col gap-1.5"
                     >
-                      <div className="font-semibold text-rose-300 flex items-center gap-1.5">
-                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800/50">
+                      <div className="font-semibold text-[var(--status-danger)] flex items-center gap-2">
+                        <Badge variant="danger" size="sm">
                           {issue.rule}
-                        </span>
+                        </Badge>
                         <span>•</span>
                         <span>{resolveRuleHeading(issue.rule)}</span>
                       </div>
-                      <p className="text-slate-300 text-xs">
+                      <p className="text-[var(--text-primary)] text-xs mt-0.5">
                         <bdi>{issue.explanation}</bdi>
                       </p>
-                      <div className="text-amber-300/90 text-xs mt-0.5 font-medium flex items-start gap-1">
-                        <span>💡</span>
-                        <bdi>{issue.tip}</bdi>
+                      <div className="text-[var(--status-warning)] text-xs mt-1 font-medium flex items-start gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <bdi className="flex-1">{issue.tip}</bdi>
                       </div>
                     </div>
                   ))}
@@ -517,14 +578,16 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
             {/* Next Session Focus */}
             {state.report.narrative.next_session && state.report.narrative.next_session.length > 0 && (
-              <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-col gap-1.5">
-                <span className="text-[11px] font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <span>🎯</span> Focus for Next Session
+              <div className="bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3.5 flex flex-col gap-2">
+                <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 shrink-0" />
+                  <span>Focus for Next Session</span>
                 </span>
-                <ul className="list-disc list-inside space-y-1 text-slate-300">
+                <ul className="space-y-1.5 text-[var(--text-secondary)] ps-1">
                   {state.report.narrative.next_session.map((item, i) => (
-                    <li key={i}>
-                      <bdi>{item}</bdi>
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="text-cyan-400 shrink-0 font-bold">•</span>
+                      <bdi className="flex-1">{item}</bdi>
                     </li>
                   ))}
                 </ul>
@@ -533,14 +596,14 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
             {/* Fatigue Note */}
             {state.report.narrative.fatigue_note && (
-              <div className="text-[11px] text-slate-400 italic border-t border-slate-800/60 pt-2 flex items-center gap-1.5">
-                <span>⚡</span>
+              <div className="text-[11px] text-[var(--text-muted)] italic border-t border-[var(--border-subtle)] pt-2.5 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-[var(--accent)] shrink-0" />
                 <bdi>{state.report.narrative.fatigue_note}</bdi>
               </div>
             )}
           </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 };

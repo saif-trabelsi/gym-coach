@@ -1,0 +1,23 @@
+{
+  "clip": "bicep_extension_faults",
+  "exercise": "bicepCurl",
+  "trueRepCount": 3,
+  "reps": [
+    {
+      "repIndex": 1,
+      "faults": [
+        "extension"
+      ]
+    },
+    {
+      "repIndex": 2,
+      "faults": []
+    },
+    {
+      "repIndex": 3,
+      "faults": [
+        "extension"
+      ]
+    }
+  ]
+}

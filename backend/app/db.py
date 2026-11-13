@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
-from typing import Generator
-from sqlalchemy import event
+from typing import Generator, Optional
+from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -24,10 +24,28 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
             pass
 
 
-def init_db() -> None:
+def migrate_db(target_engine: Optional[Engine] = None) -> None:
+    eng = target_engine or engine
+    with eng.begin() as conn:
+        inspector = inspect(conn)
+        tables = inspector.get_table_names()
+        if "session" in tables:
+            columns = [col["name"] for col in inspector.get_columns("session")]
+            if "device_id" not in columns:
+                conn.execute(
+                    text("ALTER TABLE session ADD COLUMN device_id TEXT NOT NULL DEFAULT 'legacy'")
+                )
+                conn.execute(
+                    text("CREATE INDEX IF NOT EXISTS ix_session_device_id ON session(device_id)")
+                )
+
+
+def init_db(target_engine: Optional[Engine] = None) -> None:
+    eng = target_engine or engine
     if DATABASE_URL.startswith("sqlite:///"):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-    SQLModel.metadata.create_all(engine)
+    SQLModel.metadata.create_all(eng)
+    migrate_db(eng)
 
 
 def get_session() -> Generator[Session, None, None]:

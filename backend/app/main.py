@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.db import init_db
+from app.routes.device import router as device_router
 from app.routes.reports import router as reports_router
 from app.routes.reps import router as reps_router
 from app.routes.sessions import router as sessions_router
@@ -45,22 +47,29 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Gym Coach API", lifespan=lifespan)
 
+raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if raw_allowed_origins:
+    allowed_origins = [orig.strip() for orig in raw_allowed_origins.split(",") if orig.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
 app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-Device-Id"],
 )
 
 app.include_router(sessions_router)
 app.include_router(reports_router)
 app.include_router(stats_router)
 app.include_router(reps_router)
+app.include_router(device_router)
 
 
 @app.get("/health")

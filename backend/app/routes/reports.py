@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session as DBSession, select
 
 from app.db import get_session
+from app.dependencies import get_device_id
 from app.models import Session, SessionReport
 from app.reports.config import ReportSettings, get_report_settings
 from app.reports.service import SUPPORTED_LANGUAGES, generate_report
@@ -27,6 +28,7 @@ def create_or_get_report(
     id: int,
     language: str = Query(default="en", description="Language code: en, fr, or ar"),
     force: bool = Query(default=False, description="Force regeneration bypassing cache"),
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
     clock: Callable[[], datetime] = Depends(get_clock),
     settings: ReportSettings = Depends(get_report_settings),
@@ -36,6 +38,13 @@ def create_or_get_report(
             status_code=422,
             detail=f"Invalid language '{language}'. Supported: {sorted(SUPPORTED_LANGUAGES)}",
         )
+
+    # Verify session exists and belongs to device
+    session_obj = db.exec(
+        select(Session).where(Session.id == id, Session.device_id == device_id)
+    ).first()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail=f"Session with id {id} not found")
 
     return generate_report(
         session_id=id,
@@ -55,6 +64,7 @@ def create_or_get_report(
 def get_cached_report(
     id: int,
     language: str = Query(default="en", description="Language code: en, fr, or ar"),
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
     if language not in SUPPORTED_LANGUAGES:
@@ -63,8 +73,10 @@ def get_cached_report(
             detail=f"Invalid language '{language}'. Supported: {sorted(SUPPORTED_LANGUAGES)}",
         )
 
-    # Verify session exists
-    session_obj = db.exec(select(Session).where(Session.id == id)).first()
+    # Verify session exists and belongs to device
+    session_obj = db.exec(
+        select(Session).where(Session.id == id, Session.device_id == device_id)
+    ).first()
     if not session_obj:
         raise HTTPException(status_code=404, detail=f"Session with id {id} not found")
 
@@ -91,9 +103,12 @@ def get_cached_report(
 )
 def get_all_cached_reports(
     id: int,
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
-    session_obj = db.exec(select(Session).where(Session.id == id)).first()
+    session_obj = db.exec(
+        select(Session).where(Session.id == id, Session.device_id == device_id)
+    ).first()
     if not session_obj:
         raise HTTPException(status_code=404, detail=f"Session with id {id} not found")
 

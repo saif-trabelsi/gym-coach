@@ -16,6 +16,8 @@ class ReportSettings:
     llm_model: str
     llm_timeout_seconds: float
     llm_fallback_models: List[str] = field(default_factory=list)
+    report_daily_device_cap: int = 10
+    report_daily_global_cap: int = 100
 
 
 def get_report_settings() -> ReportSettings:
@@ -38,10 +40,22 @@ def get_report_settings() -> ReportSettings:
     raw_fallbacks = os.getenv("LLM_FALLBACK_MODELS", "").strip()
     fallback_models = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
 
+    try:
+        device_cap = int(os.getenv("REPORT_DAILY_DEVICE_CAP", "10"))
+    except ValueError:
+        device_cap = 10
+
+    try:
+        global_cap = int(os.getenv("REPORT_DAILY_GLOBAL_CAP", "100"))
+    except ValueError:
+        global_cap = 100
+
     return ReportSettings(
         llm_provider=provider,
         gemini_api_key=api_key,
         llm_model=model,
         llm_timeout_seconds=timeout,
         llm_fallback_models=fallback_models,
+        report_daily_device_cap=device_cap,
+        report_daily_global_cap=global_cap,
     )

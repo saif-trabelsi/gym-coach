@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, Suspense, lazy } from 'react';
 import { Camera, type CameraHandle } from './ui/Camera';
 import { VideoFileInput, type VideoFileInputHandle } from './ui/VideoFileInput';
 import { Overlay, type OverlayHandle } from './ui/Overlay';
@@ -42,17 +42,38 @@ import {
   ValidationError,
   ServerError,
 } from './api/client';
-import { parseHash, type ParsedRoute } from './analytics/navigation';
-import { HistoryView } from './ui/HistoryView';
-import { SessionDetailView } from './ui/SessionDetailView';
-import { ProgressView } from './ui/ProgressView';
+import { parseHash, getTitleForRoute, type ParsedRoute } from './analytics/navigation';
 import { AppShell } from './ui/shell/AppShell';
-import { DesignStyleGuide } from './ui/DesignStyleGuide';
 import { ToastProvider } from './ui/kit';
+import { Spinner } from './ui/kit/Spinner';
 import { ExerciseCards } from './ui/coach/ExerciseCards';
 import { HudOverlays } from './ui/coach/HudOverlays';
 import { CoachSidePanel } from './ui/coach/CoachSidePanel';
 import { CoachToolbar } from './ui/coach/CoachToolbar';
+import { NotFoundView } from './ui/NotFoundView';
+
+// Code-split routes via React.lazy
+const HistoryView = lazy(() =>
+  import('./ui/HistoryView').then((m) => ({ default: m.HistoryView }))
+);
+const SessionDetailView = lazy(() =>
+  import('./ui/SessionDetailView').then((m) => ({ default: m.SessionDetailView }))
+);
+const ProgressView = lazy(() =>
+  import('./ui/ProgressView').then((m) => ({ default: m.ProgressView }))
+);
+const DesignStyleGuide = lazy(() =>
+  import('./ui/DesignStyleGuide').then((m) => ({ default: m.DesignStyleGuide }))
+);
+
+function ViewFallback() {
+  return (
+    <div className="w-full max-w-4xl mx-auto py-24 flex flex-col items-center justify-center gap-3 text-xs text-[var(--text-secondary)]">
+      <Spinner size="lg" />
+      <span>Loading view...</span>
+    </div>
+  );
+}
 
 type InputMode = 'webcam' | 'video';
 export type ExerciseType = 'squat' | 'bicepCurl';
@@ -73,6 +94,13 @@ export default function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
+
+  // Update document title per view
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.title = getTitleForRoute(currentRoute);
+    }
+  }, [currentRoute]);
 
   const [detector, setDetector] = useState<PoseDetector | null>(null);
   const [delegate, setDelegate] = useState<'GPU' | 'CPU' | null>(null);
@@ -123,6 +151,30 @@ export default function App() {
   // Skeleton fault joint highlighting
   const highlightJointsRef = useRef<Set<number>>(new Set());
   const highlightExpiryRef = useRef<number>(0);
+
+  // Dev-only landmark export buffer for Task 6.1 Evaluation
+  const landmarksExportBufferRef = useRef<Array<{ timestamp: number; landmarks: any[]; worldLandmarks: any[] }>>([]);
+  const [exportedLandmarksCount, setExportedLandmarksCount] = useState<number>(0);
+
+  const handleExportLandmarks = useCallback(() => {
+    if (landmarksExportBufferRef.current.length === 0) {
+      alert('No landmarks recorded yet. Play a video file to record frames first.');
+      return;
+    }
+    const payload = {
+      clip: `export_${exercise}_${Date.now()}`,
+      exercise,
+      exportedAt: new Date().toISOString(),
+      frames: landmarksExportBufferRef.current,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${exercise}_landmarks_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [exercise]);
 
   // Workout Recording state & persistent recorder
   const workoutRecorderRef = useRef<WorkoutRecorder>(new WorkoutRecorder());
@@ -409,6 +461,18 @@ export default function App() {
           // Push detected frame into ring buffer for potential worst-rep replay
           frameBufferRef.current.push(timestamp, result.landmarks);
 
+          // Dev-only landmark recording for evaluation clips export
+          if (mode === 'video' && import.meta.env.DEV) {
+            landmarksExportBufferRef.current.push({
+              timestamp,
+              landmarks: result.landmarks,
+              worldLandmarks: result.worldLandmarks,
+            });
+            if (landmarksExportBufferRef.current.length % 30 === 0) {
+              setExportedLandmarksCount(landmarksExportBufferRef.current.length);
+            }
+          }
+
           // Check if joint highlights are active (1.5s after faulty rep)
           const isHighlightActive = timestamp < highlightExpiryRef.current;
           overlayRef.current?.draw(
@@ -651,7 +715,7 @@ export default function App() {
         {/* Main Content Area */}
         <div className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6 flex flex-col items-center justify-start gap-6">
           {currentRoute.view === 'coach' && (
-            <div className="w-full flex flex-col gap-6">
+            <div className="w-full flex flex-col gap-6 page-enter">
               {/* Voice fallback notification */}
               {voiceNotice && (
                 <div className="w-full bg-amber-950/60 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-center gap-2">
@@ -715,6 +779,8 @@ export default function App() {
                     ) : (
                       <VideoFileInput
                         ref={videoInputRef}
+                        onExportLandmarks={handleExportLandmarks}
+                        recordedLandmarksCount={exportedLandmarksCount}
                         onVideoElement={(video) => {
                           unlockAudio();
                           setActiveVideo(video);
@@ -775,37 +841,59 @@ export default function App() {
             </div>
           )}
 
-    {currentRoute.view === 'history' &&
-      (currentRoute.id ? (
-        <SessionDetailView
-          sessionId={currentRoute.id}
-          initialLanguage={language.startsWith('fr') ? 'fr' : language === 'ar' ? 'ar' : 'en'}
-          onBack={() => {
-            window.location.hash = '#history';
-          }}
-        />
-      ) : (
-        <HistoryView
-          backendOnline={backendOnline}
-          onSelectSession={(id) => {
-            window.location.hash = `#history/${id}`;
-          }}
-          onGoToCoach={() => {
-            window.location.hash = '#coach';
-          }}
-        />
-      ))}
+          <Suspense fallback={<ViewFallback />}>
+            {currentRoute.view === 'history' && (
+              <div className="w-full page-enter">
+                {currentRoute.id ? (
+                  <SessionDetailView
+                    sessionId={currentRoute.id}
+                    initialLanguage={language.startsWith('fr') ? 'fr' : language === 'ar' ? 'ar' : 'en'}
+                    onBack={() => {
+                      window.location.hash = '#history';
+                    }}
+                  />
+                ) : (
+                  <HistoryView
+                    backendOnline={backendOnline}
+                    onSelectSession={(id) => {
+                      window.location.hash = `#history/${id}`;
+                    }}
+                    onGoToCoach={() => {
+                      window.location.hash = '#coach';
+                    }}
+                  />
+                )}
+              </div>
+            )}
 
-        {currentRoute.view === 'progress' && (
-          <ProgressView
-            backendOnline={backendOnline}
-            onGoToCoach={() => {
-              window.location.hash = '#coach';
-            }}
-          />
-        )}
+            {currentRoute.view === 'progress' && (
+              <div className="w-full page-enter">
+                <ProgressView
+                  backendOnline={backendOnline}
+                  onGoToCoach={() => {
+                    window.location.hash = '#coach';
+                  }}
+                />
+              </div>
+            )}
 
-        {currentRoute.view === 'design' && <DesignStyleGuide />}
+            {currentRoute.view === 'design' && (
+              <div className="w-full page-enter">
+                <DesignStyleGuide />
+              </div>
+            )}
+
+            {currentRoute.view === 'not-found' && (
+              <div className="w-full page-enter">
+                <NotFoundView
+                  rawPath={currentRoute.rawPath}
+                  onGoToCoach={() => {
+                    window.location.hash = '#coach';
+                  }}
+                />
+              </div>
+            )}
+          </Suspense>
       </div>
     </AppShell>
   </ToastProvider>

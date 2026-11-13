@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from sqlalchemy import Column, DateTime, JSON, TypeDecorator, UniqueConstraint
+from sqlalchemy import Column, DateTime, JSON, String, TypeDecorator, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -29,6 +29,10 @@ class UTCDateTime(TypeDecorator):
 
 class Session(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    device_id: str = Field(
+        default="legacy",
+        sa_column=Column(String, index=True, nullable=False, server_default="legacy"),
+    )
     started_at: datetime = Field(sa_column=Column(UTCDateTime, nullable=False))
     ended_at: datetime = Field(sa_column=Column(UTCDateTime, nullable=False))
 

@@ -8,6 +8,7 @@ export interface ScoreRingProps {
   showText?: boolean;
   className?: string;
   animate?: boolean;
+  role?: string;
 }
 
 export const ScoreRing: React.FC<ScoreRingProps> = ({
@@ -17,6 +18,7 @@ export const ScoreRing: React.FC<ScoreRingProps> = ({
   showText = true,
   className = '',
   animate = true,
+  role = 'img',
 }) => {
   const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
   const tone = scoreTone(clampedScore);
@@ -39,7 +41,7 @@ export const ScoreRing: React.FC<ScoreRingProps> = ({
 
   return (
     <div
-      role="img"
+      role={role}
       aria-label={`Score ${clampedScore} out of 100`}
       className={`relative inline-flex items-center justify-center ${className}`}
       style={{ width: size, height: size }}

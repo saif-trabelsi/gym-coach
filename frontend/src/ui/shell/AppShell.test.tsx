@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { AppShell } from './AppShell';
 import { parseHash } from '../../analytics/navigation';
 
@@ -64,5 +64,22 @@ describe('AppShell layout and navigation', () => {
     } finally {
       (import.meta.env as any).DEV = originalDev;
     }
+  });
+
+  it('opens privacy & device data modal with export and delete actions', () => {
+    render(
+      <AppShell currentView="coach" backendOnline={true}>
+        <div>Content</div>
+      </AppShell>
+    );
+
+    const privacyBtn = screen.getByRole('button', { name: /privacy and device data settings/i });
+    expect(privacyBtn).toBeTruthy();
+    fireEvent.click(privacyBtn);
+
+    expect(screen.getByRole('heading', { name: /privacy & device data/i })).toBeTruthy();
+    expect(screen.getByText('Anonymous Device Token')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /export json/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /delete all/i })).toBeTruthy();
   });
 });

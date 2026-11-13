@@ -1,4 +1,5 @@
 import type { SessionPayload, RepReplayPayload } from '../recording/workoutRecorder';
+import { getDeviceId } from './device';
 
 export type { RepReplayPayload };
 
@@ -67,7 +68,8 @@ export type FallbackReason =
   | 'timeout'
   | 'rate_limited'
   | 'provider_error'
-  | 'invalid_output';
+  | 'invalid_output'
+  | 'quota_exceeded';
 
 export interface NarrativeIssue {
   rule: string;
@@ -200,9 +202,16 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
 
+  const deviceId = getDeviceId();
+  const headers = new Headers(options.headers || {});
+  if (!headers.has('X-Device-Id')) {
+    headers.set('X-Device-Id', deviceId);
+  }
+
   try {
     const response = await fetch(url, {
       ...options,
+      headers,
       signal: controller.signal,
     });
     return response;
@@ -600,5 +609,52 @@ export async function getReplay(repId: number): Promise<RepReplayPayload> {
   }
 
   throw new ApiError(`Failed to fetch replay (${response.status})`);
+}
+
+export interface DeviceExportPayload {
+  device_id: string;
+  exported_at: string;
+  total_sessions: number;
+  sessions: any[];
+}
+
+/**
+ * Exports all sessions, sets, reps, and coaching reports for this device.
+ */
+export async function exportDeviceData(): Promise<DeviceExportPayload> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(`${baseUrl}/device/export`, {
+    method: 'GET',
+  });
+
+  if (response.status === 200) {
+    return response.json();
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to export device data (${response.status})`);
+}
+
+/**
+ * Permanently deletes all data associated with this device.
+ */
+export async function deleteDeviceData(): Promise<void> {
+  const baseUrl = getApiUrl();
+  const response = await fetchWithTimeout(`${baseUrl}/device`, {
+    method: 'DELETE',
+  });
+
+  if (response.status === 204) {
+    return;
+  }
+
+  if (response.status >= 500) {
+    throw new ServerError(response.status, `Server error (${response.status})`);
+  }
+
+  throw new ApiError(`Failed to delete device data (${response.status})`);
 }
 

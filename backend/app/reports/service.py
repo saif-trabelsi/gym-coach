@@ -147,7 +147,34 @@ def generate_report(
             else:
                 provider = MockLLMProvider()
 
-        # 5. Call provider if not already marked fallback
+        # 5. Check daily quota against LLM spending
+        if not is_fallback:
+            start_of_day = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=timezone.utc)
+            device_reports = db.exec(
+                select(SessionReport)
+                .join(Session, SessionReport.session_id == Session.id)
+                .where(
+                    Session.device_id == session_obj.device_id,
+                    SessionReport.created_at >= start_of_day,
+                    SessionReport.is_fallback == False,
+                )
+            ).all()
+            device_count = len([r for r in device_reports if not (existing_report and r.id == existing_report.id)])
+
+            global_reports = db.exec(
+                select(SessionReport)
+                .where(
+                    SessionReport.created_at >= start_of_day,
+                    SessionReport.is_fallback == False,
+                )
+            ).all()
+            global_count = len([r for r in global_reports if not (existing_report and r.id == existing_report.id)])
+
+            if device_count >= settings.report_daily_device_cap or global_count >= settings.report_daily_global_cap:
+                is_fallback = True
+                fallback_reason = "quota_exceeded"
+
+        # 6. Call provider if not already marked fallback
         gen_start = time.perf_counter()
         attempts = 1
 

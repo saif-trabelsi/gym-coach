@@ -20,10 +20,12 @@ interface VideoFileInputProps {
   onVideoElement?: (video: HTMLVideoElement | null) => void;
   children?: ReactNode;
   className?: string;
+  onExportLandmarks?: () => void;
+  recordedLandmarksCount?: number;
 }
 
 export const VideoFileInput = forwardRef<VideoFileInputHandle, VideoFileInputProps>(
-  ({ onVideoElement, children, className = '' }, ref) => {
+  ({ onVideoElement, children, className = '', onExportLandmarks, recordedLandmarksCount }, ref) => {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -223,6 +225,16 @@ export const VideoFileInput = forwardRef<VideoFileInputHandle, VideoFileInputPro
                 📁 {fileName}
               </span>
               <div className="flex items-center gap-2">
+                {import.meta.env.DEV && onExportLandmarks && (
+                  <button
+                    type="button"
+                    onClick={onExportLandmarks}
+                    className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 hover:bg-emerald-900/80 transition-colors cursor-pointer"
+                    title="Export detected landmark sequence as JSON (Dev mode only)"
+                  >
+                    📥 Export Landmarks {recordedLandmarksCount !== undefined ? `(${recordedLandmarksCount})` : ''}
+                  </button>
+                )}
                 <button
                   onClick={() => setIsLooping(!isLooping)}
                   className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors border ${

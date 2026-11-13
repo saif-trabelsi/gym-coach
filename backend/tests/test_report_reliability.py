@@ -9,15 +9,16 @@ from sqlmodel import Session as DBSession
 
 from app.main import app
 from app.models import Rep, Session, WorkoutSet
+from tests.conftest import DEFAULT_DEVICE_ID
 from app.reports.config import ReportSettings
 from app.reports.providers.gemini import GeminiLLMProvider
 from app.reports.service import generate_report
 
 
-def create_sample_session(db: DBSession) -> Session:
+def create_sample_session(db: DBSession, device_id: str = DEFAULT_DEVICE_ID) -> Session:
     started = datetime(2026, 11, 4, 10, 0, 0, tzinfo=timezone.utc)
     ended = datetime(2026, 11, 4, 10, 30, 0, tzinfo=timezone.utc)
-    sess = Session(started_at=started, ended_at=ended)
+    sess = Session(started_at=started, ended_at=ended, device_id=device_id)
     db.add(sess)
     db.commit()
     db.refresh(sess)

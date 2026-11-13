@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -18,8 +18,33 @@ import {
   NotFoundError,
 } from '../api/client';
 import { setSummary, type FatigueTrend } from '../analytics/fatigue';
+import { formatLocalDateTime, formatDuration } from '../analytics/dates';
+import { scoreTone } from '../design/scoreTone';
+import { getChartTheme } from './chartTheme';
 import { ReportCard } from './ReportCard';
 import { ReplayPlayer } from './ReplayPlayer';
+import { Card } from './kit/Card';
+import { Button } from './kit/Button';
+import { Badge } from './kit/Badge';
+import { ScoreRing } from './kit/ScoreRing';
+import { StatTile } from './kit/StatTile';
+import { Skeleton } from './kit/Skeleton';
+import { EmptyState } from './kit/EmptyState';
+import { Spinner } from './kit/Spinner';
+import {
+  ArrowLeft,
+  Dumbbell,
+  Flame,
+  Clock,
+  Layers,
+  Play,
+  RotateCcw,
+  AlertCircle,
+  TrendingDown,
+  TrendingUp,
+  Minus,
+  Printer,
+} from 'lucide-react';
 
 interface SessionDetailViewProps {
   sessionId: number;
@@ -68,6 +93,9 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
   const [loadedReplayPayload, setLoadedReplayPayload] =
     useState<RepReplayPayload | null>(null);
   const replayCacheRef = useRef<Map<number, RepReplayPayload>>(new Map());
+
+  // Theme-aware chart colors from tokens
+  const chartTheme = useMemo(() => getChartTheme(), []);
 
   const handleOpenReplay = async (
     rep: { id: number; index: number; score: number; violations?: string[] },
@@ -158,100 +186,104 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
     };
   }, [sessionId]);
 
-  const formatLocalDateTime = (utcStr: string): string => {
-    const d = new Date(utcStr);
-    if (isNaN(d.getTime())) return utcStr;
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const formatDuration = (startStr: string, endStr: string): string => {
-    const start = new Date(startStr).getTime();
-    const end = new Date(endStr).getTime();
-    if (isNaN(start) || isNaN(end) || end < start) return '-';
-    const totalSec = Math.max(0, Math.round((end - start) / 1000));
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    if (mins === 0) return `${secs}s`;
-    return `${mins}m ${secs}s`;
-  };
-
   const getTrendBadge = (trend: FatigueTrend, drop: number | null) => {
     if (drop === null || trend === 'insufficient') {
-      return {
-        label: 'Not enough reps for a fatigue trend',
-        className: 'bg-slate-800 text-slate-400 border-slate-700',
-        icon: 'ℹ️',
-      };
+      return (
+        <Badge variant="neutral" size="sm">
+          <Minus className="w-3 h-3 me-1 text-[var(--text-muted)]" />
+          <span>Not enough reps</span>
+        </Badge>
+      );
     }
     if (trend === 'declining') {
-      return {
-        label: `Declining (+${drop.toFixed(1)})`,
-        className: 'bg-rose-950 text-rose-300 border-rose-800/60',
-        icon: '↓',
-      };
+      return (
+        <Badge variant="danger" size="sm">
+          <TrendingDown className="w-3 h-3 me-1 text-[var(--status-danger)]" />
+          <span>Declining (+{drop.toFixed(1)})</span>
+        </Badge>
+      );
     }
     if (trend === 'improving') {
-      return {
-        label: `Improving (${drop.toFixed(1)})`,
-        className: 'bg-emerald-950 text-emerald-300 border-emerald-800/60',
-        icon: '↑',
-      };
+      return (
+        <Badge variant="success" size="sm">
+          <TrendingUp className="w-3 h-3 me-1 text-[var(--status-success)]" />
+          <span>Improving ({drop.toFixed(1)})</span>
+        </Badge>
+      );
     }
-    return {
-      label: `Stable (${drop >= 0 ? '+' : ''}${drop.toFixed(1)})`,
-      className: 'bg-slate-800 text-slate-300 border-slate-700',
-      icon: '→',
-    };
+    return (
+      <Badge variant="neutral" size="sm">
+        <Minus className="w-3 h-3 me-1 text-[var(--text-muted)]" />
+        <span>Stable ({drop >= 0 ? '+' : ''}{drop.toFixed(1)})</span>
+      </Badge>
+    );
   };
 
   if (loading) {
     return (
-      <div className="w-full max-w-4xl mx-auto py-24 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
-        <svg className="animate-spin h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-        </svg>
-        <span>Loading workout details...</span>
+      <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 p-4">
+        <div className="flex items-center gap-3">
+          <Skeleton variant="rounded" width={110} height={36} />
+          <Skeleton variant="text" width={160} height={24} />
+        </div>
+        <Card className="p-6 flex flex-col gap-4">
+          <Skeleton variant="text" width={240} height={28} />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2">
+            {[1, 2, 3, 4].map((n) => (
+              <Skeleton key={n} variant="rounded" height={64} />
+            ))}
+          </div>
+        </Card>
+        <Card className="p-6 h-64 flex items-center justify-center">
+          <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
+            <Spinner size="md" />
+            <span>Loading workout details...</span>
+          </div>
+        </Card>
       </div>
     );
   }
 
   if (isNotFound) {
     return (
-      <div className="w-full max-w-4xl mx-auto p-6 flex flex-col items-center gap-4 text-center">
-        <span className="text-4xl">🔍</span>
-        <h2 className="text-lg font-bold text-white">Workout Not Found</h2>
-        <p className="text-xs text-slate-400">
-          We could not find workout session #{sessionId}. It may have been deleted.
-        </p>
-        <button
-          onClick={onBack}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-1.5"
-        >
-          <span>←</span> Back to History
-        </button>
+      <div className="w-full max-w-4xl mx-auto p-4 flex flex-col items-center">
+        <EmptyState
+          icon={<AlertCircle className="w-8 h-8 text-[var(--status-warning)]" />}
+          title="Workout Not Found"
+          description={`We could not find workout session #${sessionId}. It may have been deleted.`}
+          action={
+            <Button
+              variant="primary"
+              size="md"
+              onClick={onBack}
+              leftIcon={<ArrowLeft className="w-4 h-4" />}
+            >
+              Back to History
+            </Button>
+          }
+        />
       </div>
     );
   }
 
   if (error || !session) {
     return (
-      <div className="w-full max-w-4xl mx-auto p-6 flex flex-col items-center gap-4 text-center">
-        <span className="text-4xl">⚠️</span>
-        <h2 className="text-lg font-bold text-rose-300">Failed to Load Workout</h2>
-        <p className="text-xs text-slate-400">{error || 'Unknown error occurred'}</p>
-        <button
-          onClick={onBack}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all"
-        >
-          ← Back to History
-        </button>
+      <div className="w-full max-w-4xl mx-auto p-4 flex flex-col items-center">
+        <EmptyState
+          icon={<AlertCircle className="w-8 h-8 text-[var(--status-danger)]" />}
+          title="Failed to Load Workout"
+          description={error || 'An unexpected error occurred while loading session details.'}
+          action={
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onBack}
+              leftIcon={<ArrowLeft className="w-4 h-4" />}
+            >
+              Back to History
+            </Button>
+          }
+        />
       </div>
     );
   }
@@ -259,56 +291,107 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
   // Calculate session totals
   const allReps = session.sets.flatMap((s) => s.reps);
   const totalReps = allReps.length;
-  const overallAvg =
+  const overallAvgNum =
     totalReps > 0
-      ? (allReps.reduce((sum, r) => sum + r.score, 0) / totalReps).toFixed(1)
-      : '0.0';
+      ? allReps.reduce((sum, r) => sum + r.score, 0) / totalReps
+      : 0;
+  const overallAvg = overallAvgNum > 0 ? overallAvgNum.toFixed(1) : '0.0';
+  const overallScoreRounded = Math.round(overallAvgNum);
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 p-4">
-      {/* Back button and Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-        <button
-          onClick={onBack}
-          className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
-        >
-          <span>←</span> Back to History
-        </button>
-        <span className="text-xs text-slate-500 font-mono">Session #{session.id}</span>
+      {/* Top Navigation & Session ID */}
+      <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-4">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onBack}
+            leftIcon={<ArrowLeft className="w-3.5 h-3.5" />}
+          >
+            Back to History
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.print()}
+            leftIcon={<Printer className="w-3.5 h-3.5" />}
+            className="hidden sm:inline-flex"
+            title="Print or save session report as PDF"
+          >
+            Print / Save PDF
+          </Button>
+        </div>
+        <Badge variant="neutral" size="sm">
+          Session #{session.id}
+        </Badge>
       </div>
 
       {/* Session Overview Header Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>🏋️‍♂️</span> Workout from {formatLocalDateTime(session.started_at)}
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Duration: <strong className="text-slate-200 font-mono">{formatDuration(session.started_at, session.ended_at)}</strong> · Sets:{' '}
-            <strong className="text-slate-200">{session.sets.length}</strong>
-          </p>
+      <Card className="p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex items-center gap-5">
+          {totalReps > 0 ? (
+            <ScoreRing score={overallScoreRounded} size={76} strokeWidth={7} role="meter" />
+          ) : (
+            <div className="w-[76px] h-[76px] rounded-full border border-[var(--border-subtle)] flex items-center justify-center font-mono text-sm text-[var(--text-muted)]">
+              --
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-black text-[var(--text-primary)] tracking-tight">
+                Workout Summary
+              </h1>
+              <Badge variant="neutral" size="sm">
+                {session.sets.length} set{session.sets.length === 1 ? '' : 's'}
+              </Badge>
+            </div>
+            <p className="text-xs text-[var(--text-secondary)] mt-1 flex items-center gap-1.5">
+              <span>{formatLocalDateTime(session.started_at)}</span>
+              <span>·</span>
+              <span className="font-mono text-[var(--text-primary)] font-semibold">
+                {formatDuration(session.started_at, session.ended_at)}
+              </span>
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="bg-slate-800/80 border border-slate-700/80 px-3.5 py-2 rounded-xl text-center">
-            <div className="text-[10px] uppercase font-semibold text-slate-400">Total Reps</div>
-            <div className="text-base font-bold text-cyan-400">{totalReps}</div>
-          </div>
-          <div className="bg-slate-800/80 border border-slate-700/80 px-3.5 py-2 rounded-xl text-center">
-            <div className="text-[10px] uppercase font-semibold text-slate-400">Avg Score</div>
-            <div className="text-base font-bold text-emerald-400">{overallAvg}</div>
-          </div>
+        {/* Overview Stats Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 border-t md:border-t-0 md:border-s border-[var(--border-subtle)] pt-4 md:pt-0 md:ps-6">
+          <StatTile
+            label="Total Reps"
+            value={totalReps}
+            icon={<Dumbbell className="w-4 h-4 text-[var(--accent)]" />}
+          />
+          <StatTile
+            label="Avg Score"
+            value={overallAvg}
+            tone={totalReps > 0 ? scoreTone(overallAvgNum) : 'default'}
+          />
+          <StatTile
+            label="Total Sets"
+            value={session.sets.length}
+            icon={<Layers className="w-4 h-4 text-cyan-400" />}
+          />
         </div>
-      </div>
+      </Card>
 
-      {/* AI Coaching Report Card */}
+      {/* AI Coaching Report Section */}
       <ReportCard sessionId={session.id} initialLanguage={initialLanguage} />
 
-      {/* Sets Detail */}
-      <div className="flex flex-col gap-8">
+      {/* Workout Sets Section */}
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-black uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-2">
+            <Layers className="w-4 h-4 text-[var(--accent)]" />
+            Workout Sets ({session.sets.length})
+          </h2>
+          <div className="flex-1 h-px bg-[var(--border-subtle)]" />
+        </div>
+
         {session.sets.map((wSet, setIdx) => {
           const summary = setSummary(wSet);
-          const trendBadge = getTrendBadge(summary.trend, summary.formDrop);
 
           // Dynamic metric columns for this set
           const metricKeys = Array.from(
@@ -332,89 +415,100 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
               : null;
 
           return (
-            <div
+            <Card
               key={wSet.id || setIdx}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col gap-5"
+              className="p-5 shadow-sm flex flex-col gap-5 border-[var(--border-subtle)]"
             >
-              {/* Set Title */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">
-                    {wSet.exercise === 'squat' ? '🦵' : '💪'}
-                  </span>
-                  <h3 className="text-base font-bold text-white capitalize">
-                    Set {setIdx + 1}: {wSet.exercise === 'squat' ? 'Squat' : 'Bicep Curl'}
+              {/* Set Header */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
+                <div className="flex items-center gap-2.5">
+                  <Badge variant="neutral" size="sm">
+                    {wSet.exercise === 'squat' ? (
+                      <Flame className="w-3.5 h-3.5 text-emerald-400 inline me-1" />
+                    ) : (
+                      <Dumbbell className="w-3.5 h-3.5 text-cyan-400 inline me-1" />
+                    )}
+                    {wSet.exercise === 'squat' ? 'Squat' : 'Bicep Curl'}
+                  </Badge>
+                  <h3 className="text-base font-bold text-[var(--text-primary)]">
+                    Set {setIdx + 1}
                   </h3>
                 </div>
-                <span className="text-xs text-slate-500 font-mono">
+
+                <span className="text-xs text-[var(--text-secondary)] font-mono flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-[var(--text-muted)]" />
                   {formatDuration(wSet.started_at, wSet.ended_at)}
                 </span>
               </div>
 
               {/* Summary Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                <div className="bg-slate-800/60 border border-slate-700/60 p-2.5 rounded-xl text-center">
-                  <div className="text-[10px] uppercase font-semibold text-slate-400">Reps</div>
-                  <div className="text-sm font-bold text-slate-100">{summary.reps}</div>
-                </div>
-                <div className="bg-slate-800/60 border border-slate-700/60 p-2.5 rounded-xl text-center">
-                  <div className="text-[10px] uppercase font-semibold text-slate-400">Average</div>
-                  <div className="text-sm font-bold text-slate-100">{summary.averageScore}</div>
-                </div>
-                <div className="bg-slate-800/60 border border-slate-700/60 p-2.5 rounded-xl text-center">
-                  <div className="text-[10px] uppercase font-semibold text-slate-400">Best</div>
-                  <div className="text-sm font-bold text-emerald-400">{summary.bestScore}</div>
-                </div>
-                <div className="bg-slate-800/60 border border-slate-700/60 p-2.5 rounded-xl text-center">
-                  <div className="text-[10px] uppercase font-semibold text-slate-400">Worst</div>
-                  <div className="text-sm font-bold text-rose-400">{summary.worstScore}</div>
-                </div>
-                <div className="col-span-2 sm:col-span-1 bg-slate-800/60 border border-slate-700/60 p-2.5 rounded-xl text-center flex flex-col justify-center items-center">
-                  <div className="text-[10px] uppercase font-semibold text-slate-400">Trend</div>
-                  <span
-                    className={`mt-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-md border flex items-center gap-1 ${trendBadge.className}`}
-                  >
-                    <span>{trendBadge.icon}</span>
-                    <span className="truncate">{trendBadge.label}</span>
+                <StatTile label="Reps" value={summary.reps} />
+                <StatTile
+                  label="Average"
+                  value={summary.averageScore}
+                  tone={scoreTone(summary.averageScore)}
+                />
+                <StatTile
+                  label="Best"
+                  value={summary.bestScore}
+                  tone={scoreTone(summary.bestScore)}
+                />
+                <StatTile
+                  label="Worst"
+                  value={summary.worstScore}
+                  tone={scoreTone(summary.worstScore)}
+                />
+                <div className="col-span-2 sm:col-span-1 bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] p-3 rounded-[var(--radius-xl)] flex flex-col justify-center items-center text-center">
+                  <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] tracking-wider">
+                    Trend
                   </span>
+                  <div className="mt-1">{getTrendBadge(summary.trend, summary.formDrop)}</div>
                 </div>
               </div>
 
-              {/* Top Violations Strip (if any) */}
+              {/* Top Form Faults (if any) */}
               {summary.ranking.length > 0 && (
-                <div className="bg-slate-950/40 border border-slate-800/80 rounded-xl p-3 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-semibold text-slate-400">Top Form Faults:</span>
+                <div className="bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-semibold text-[var(--text-secondary)]">Top Form Faults:</span>
                   {summary.ranking.slice(0, 3).map((item) => (
-                    <span
-                      key={item.rule}
-                      className="px-2 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-900/40 font-mono text-[11px]"
-                    >
+                    <Badge key={item.rule} variant="danger" size="sm">
                       {item.rule} ({item.count})
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               )}
 
               {/* Fatigue Curve Line Chart */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span className="font-semibold">Fatigue Curve (Score per Rep)</span>
-                  <span className="text-[11px] text-slate-500 font-mono">Dashed line = Set Average ({summary.averageScore})</span>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                  <span className="font-bold text-[var(--text-primary)]">
+                    Fatigue Curve (Score per Rep)
+                  </span>
+                  <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                    Dashed line = Set Average ({summary.averageScore})
+                  </span>
                 </div>
-                <div className="w-full h-48 bg-slate-950/60 border border-slate-800 rounded-xl p-2">
+                <div className="w-full h-52 bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-xl)] p-3">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 10, right: 20, left: -20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} opacity={0.5} />
                       <XAxis
                         dataKey="index"
-                        stroke="#94a3b8"
+                        stroke={chartTheme.axisText}
                         fontSize={11}
                         tickLine={false}
-                        label={{ value: 'Rep #', position: 'insideBottomRight', offset: -5, fill: '#64748b', fontSize: 10 }}
+                        label={{
+                          value: 'Rep #',
+                          position: 'insideBottomRight',
+                          offset: -5,
+                          fill: chartTheme.axisText,
+                          fontSize: 10,
+                        }}
                       />
                       <YAxis
                         domain={[0, 100]}
-                        stroke="#94a3b8"
+                        stroke={chartTheme.axisText}
                         fontSize={11}
                         tickLine={false}
                         ticks={[0, 25, 50, 75, 100]}
@@ -424,14 +518,16 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                           if (active && payload && payload.length) {
                             const data = payload[0].payload;
                             return (
-                              <div className="bg-slate-900 border border-slate-700 p-2.5 rounded-lg shadow-xl text-xs font-mono">
-                                <p className="font-bold text-white mb-0.5">Rep #{data.index}</p>
-                                <p className="text-cyan-300">
-                                  Score: <strong className="text-white">{data.score}</strong>
+                              <div className="bg-[var(--bg-surface)] border border-[var(--border-default)] p-3 rounded-[var(--radius-lg)] shadow-xl text-xs font-mono">
+                                <p className="font-bold text-[var(--text-primary)] mb-1">
+                                  Rep #{data.index}
+                                </p>
+                                <p className="text-[var(--accent)] font-semibold">
+                                  Score: <strong className="text-[var(--text-primary)]">{data.score}</strong>
                                 </p>
                                 {data.violations && data.violations.length > 0 ? (
-                                  <div className="mt-1 text-rose-300">
-                                    <span className="font-semibold text-rose-400 font-sans">Violations:</span>
+                                  <div className="mt-1.5 text-[var(--status-danger)]">
+                                    <span className="font-semibold font-sans">Violations:</span>
                                     <ul className="list-disc list-inside mt-0.5">
                                       {data.violations.map((v: string, idx: number) => (
                                         <li key={idx}>{v}</li>
@@ -439,7 +535,7 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                                     </ul>
                                   </div>
                                 ) : (
-                                  <p className="text-emerald-400 mt-1 font-sans">✓ Perfect form</p>
+                                  <p className="text-[var(--status-success)] mt-1 font-sans">✓ Perfect form</p>
                                 )}
                               </div>
                             );
@@ -449,16 +545,16 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                       />
                       <ReferenceLine
                         y={summary.averageScore}
-                        stroke="#94a3b8"
+                        stroke={chartTheme.axisText}
                         strokeDasharray="4 4"
                       />
                       <Line
                         type="monotone"
                         dataKey="score"
-                        stroke="#6366f1"
+                        stroke={chartTheme.accent}
                         strokeWidth={2.5}
-                        dot={{ r: 4, fill: '#818cf8', strokeWidth: 0 }}
-                        activeDot={{ r: 6, fill: '#38bdf8' }}
+                        dot={{ r: 4, fill: chartTheme.accent, strokeWidth: 0 }}
+                        activeDot={{ r: 6, fill: chartTheme.accent }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -468,59 +564,42 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
               {/* Worst rep replay button */}
               {worstReplayRep && (
                 <div className="flex items-center justify-start">
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => handleOpenReplay(worstReplayRep, wSet.exercise)}
-                    className="px-3.5 py-1.5 bg-rose-950/80 hover:bg-rose-900/80 text-rose-200 border border-rose-800/60 rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-1.5"
+                    leftIcon={<Play className="w-3.5 h-3.5 text-[var(--status-danger)]" />}
                   >
-                    <span>🎬</span>
                     <span>Replay worst rep</span>
-                  </button>
+                  </Button>
                 </div>
               )}
 
               {/* Inline replay accordion */}
               {activeReplay && wSet.reps.some((r) => r.id === activeReplay.repId) && (
-                <div className="w-full bg-slate-900/50 border border-slate-800/80 rounded-2xl p-4 my-1">
+                <div className="w-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] rounded-[var(--radius-2xl)] p-4 my-1">
                   {replayLoading && (
-                    <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400 text-xs">
-                      <svg
-                        className="animate-spin h-5 w-5 text-indigo-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        />
-                      </svg>
+                    <div className="py-8 flex flex-col items-center justify-center gap-2 text-[var(--text-secondary)] text-xs">
+                      <Spinner size="md" />
                       <span>Loading replay...</span>
                     </div>
                   )}
 
                   {replayError && !replayLoading && (
                     <div className="py-4 flex flex-col items-center gap-2 text-center text-xs">
-                      <span className="text-xl">⚠️</span>
-                      <p className="text-rose-300 font-semibold">
+                      <AlertCircle className="w-6 h-6 text-[var(--status-danger)]" />
+                      <p className="text-[var(--status-danger)] font-semibold">
                         {replayError.message}
                       </p>
                       {replayError.type === 'network' && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="primary"
+                          size="sm"
                           onClick={handleRetryReplay}
-                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold"
+                          leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                         >
                           Retry
-                        </button>
+                        </Button>
                       )}
                     </div>
                   )}
@@ -539,9 +618,9 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
               )}
 
               {/* Rep Table with Dynamic Metric Columns */}
-              <div className="overflow-x-auto border border-slate-800 rounded-xl">
+              <div className="overflow-x-auto border border-[var(--border-subtle)] rounded-[var(--radius-xl)]">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-800/80 border-b border-slate-700/80 text-slate-400 font-semibold">
+                  <thead className="bg-[var(--bg-surface-elevated)] border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-semibold">
                     <tr>
                       <th className="py-2.5 px-3">Rep #</th>
                       <th className="py-2.5 px-3">Score</th>
@@ -553,74 +632,80 @@ export const SessionDetailView: React.FC<SessionDetailViewProps> = ({
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60 font-mono">
-                    {wSet.reps.map((rep) => (
-                      <tr key={rep.id || rep.index} className="hover:bg-slate-800/30">
-                        <td className="py-2 px-3 font-semibold text-slate-300">
-                          <div className="flex items-center gap-1.5">
-                            <span>#{rep.index}</span>
-                            {rep.has_replay && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReplay(rep, wSet.exercise)}
-                                title="Replay rep"
-                                aria-label={`Replay rep ${rep.index}`}
-                                className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-slate-700 hover:border-indigo-500 transition-colors text-[10px] font-sans"
-                              >
-                                ▶
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-2 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-md font-bold text-[11px] ${
-                              rep.score >= 85
-                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700/60'
-                                : rep.score >= 70
-                                ? 'bg-amber-950 text-amber-300 border border-amber-700/60'
-                                : 'bg-rose-950 text-rose-300 border border-rose-700/60'
-                            }`}
-                          >
-                            {rep.score}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 font-sans">
-                          {rep.violations && rep.violations.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {rep.violations.map((v, vIdx) => (
-                                <span
-                                  key={vIdx}
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-950 text-rose-300 border border-rose-800/40"
+                  <tbody className="divide-y divide-[var(--border-subtle)] font-mono">
+                    {wSet.reps.map((rep) => {
+                      const tone = scoreTone(rep.score);
+                      return (
+                        <tr
+                          key={rep.id || rep.index}
+                          className="hover:bg-[var(--bg-surface-elevated)]/60 transition-colors"
+                        >
+                          <td className="py-2.5 px-3 font-semibold text-[var(--text-primary)]">
+                            <div className="flex items-center gap-2">
+                              <span>#{rep.index}</span>
+                              {rep.has_replay && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReplay(rep, wSet.exercise)}
+                                  title="Replay rep"
+                                  aria-label={`Replay rep ${rep.index}`}
+                                  className="p-1 rounded-md bg-[var(--bg-surface)] hover:bg-[var(--accent)] text-[var(--accent)] hover:text-[var(--accent-contrast)] border border-[var(--border-subtle)] transition-colors cursor-pointer"
                                 >
-                                  {v}
-                                </span>
-                              ))}
+                                  <Play className="w-3 h-3 fill-current" />
+                                </button>
+                              )}
                             </div>
-                          ) : (
-                            <span className="text-emerald-400 text-[11px]">✓ Clean</span>
-                          )}
-                        </td>
-                        {metricKeys.map((key) => {
-                          const val = rep.metrics ? rep.metrics[key] : undefined;
-                          const displayVal =
-                            typeof val === 'number'
-                              ? val.toFixed(1)
-                              : val !== undefined && val !== null
-                              ? String(val)
-                              : '-';
-                          return (
-                            <td key={key} className="py-2 px-3 text-slate-300">
-                              {displayVal}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Badge
+                              variant={
+                                tone === 'good'
+                                  ? 'success'
+                                  : tone === 'warn'
+                                  ? 'warning'
+                                  : 'danger'
+                              }
+                              size="sm"
+                            >
+                              {rep.score}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 px-3 font-sans">
+                            {rep.violations && rep.violations.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {rep.violations.map((v, vIdx) => (
+                                  <Badge key={vIdx} variant="danger" size="sm">
+                                    {v}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[var(--status-success)] text-xs font-medium">
+                                ✓ Clean
+                              </span>
+                            )}
+                          </td>
+                          {metricKeys.map((key) => {
+                            const val = rep.metrics ? rep.metrics[key] : undefined;
+                            const displayVal =
+                              typeof val === 'number'
+                                ? val.toFixed(1)
+                                : val !== undefined && val !== null
+                                ? String(val)
+                                : '-';
+                            return (
+                              <td key={key} className="py-2.5 px-3 text-[var(--text-secondary)]">
+                                {displayVal}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>

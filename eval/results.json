@@ -1,0 +1,46 @@
+{
+  "totalClips": 5,
+  "totalTrueReps": 19,
+  "totalPredictedReps": 19,
+  "repCountMae": 0,
+  "repCountExactMatchRate": 1,
+  "rules": {
+    "extension": {
+      "rule": "extension",
+      "tp": 0,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1,
+      "recall": 0,
+      "f1": 0
+    },
+    "tempo": {
+      "rule": "tempo",
+      "tp": 0,
+      "fp": 8,
+      "fn": 0,
+      "precision": 0,
+      "recall": 1,
+      "f1": 0
+    },
+    "back": {
+      "rule": "back",
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    "depth": {
+      "rule": "depth",
+      "tp": 0,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1,
+      "recall": 0,
+      "f1": 0
+    }
+  },
+  "macroF1": 0.25
+}

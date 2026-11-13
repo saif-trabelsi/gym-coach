@@ -1,0 +1,21 @@
+{
+  "clip": "squat_back_lean_faults",
+  "exercise": "squat",
+  "trueRepCount": 3,
+  "reps": [
+    {
+      "repIndex": 1,
+      "faults": []
+    },
+    {
+      "repIndex": 2,
+      "faults": [
+        "back"
+      ]
+    },
+    {
+      "repIndex": 3,
+      "faults": []
+    }
+  ]
+}

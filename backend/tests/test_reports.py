@@ -29,6 +29,7 @@ from app.reports.stats import (
     compute_violation_ranking,
 )
 from app.routes.reports import get_clock
+from tests.conftest import DEFAULT_DEVICE_ID
 
 
 def create_sample_session(
@@ -36,8 +37,9 @@ def create_sample_session(
     sets_data: List[Dict[str, Any]],
     started_at: datetime = datetime(2026, 11, 4, 10, 0, 0, tzinfo=timezone.utc),
     ended_at: datetime = datetime(2026, 11, 4, 10, 30, 0, tzinfo=timezone.utc),
+    device_id: str = DEFAULT_DEVICE_ID,
 ) -> Session:
-    sess = Session(started_at=started_at, ended_at=ended_at)
+    sess = Session(started_at=started_at, ended_at=ended_at, device_id=device_id)
     db.add(sess)
     db.commit()
     db.refresh(sess)

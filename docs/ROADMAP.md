@@ -4,12 +4,12 @@
 5.4 Replay viewer: DONE
 R.1 Report reliability: DONE
 D.1 Design system and app shell: DONE
-D.2 Coach screen redesign: TODO
-D.3 History, session detail, report card and replay restyle: TODO
-D.4 Progress, polish, accessibility, share image: TODO
+D.2 Coach screen redesign: DONE
+D.3 History, session detail, report card and replay restyle: DONE
+D.4 Progress, polish, accessibility, share image: DONE
 D.5 Optional: full UI translation EN/FR/AR with RTL: TODO (only if I ask)
-6.1 Evaluation: TODO
-6.2 Per-device privacy and quotas: TODO
+6.1 Evaluation: DONE
+6.2 Per-device privacy and quotas: DONE
 6.3 Docker: TODO
 6.4 Deploy: TODO
 6.5 README, CI and demo video kit: TODO

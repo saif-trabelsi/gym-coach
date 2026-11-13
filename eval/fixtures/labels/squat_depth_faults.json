@@ -1,0 +1,27 @@
+{
+  "clip": "squat_depth_faults",
+  "exercise": "squat",
+  "trueRepCount": 4,
+  "reps": [
+    {
+      "repIndex": 1,
+      "faults": []
+    },
+    {
+      "repIndex": 2,
+      "faults": [
+        "depth"
+      ]
+    },
+    {
+      "repIndex": 3,
+      "faults": []
+    },
+    {
+      "repIndex": 4,
+      "faults": [
+        "depth"
+      ]
+    }
+  ]
+}

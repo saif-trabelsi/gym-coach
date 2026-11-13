@@ -1,0 +1,23 @@
+{
+  "clip": "bicep_clean_4reps",
+  "exercise": "bicepCurl",
+  "trueRepCount": 4,
+  "reps": [
+    {
+      "repIndex": 1,
+      "faults": []
+    },
+    {
+      "repIndex": 2,
+      "faults": []
+    },
+    {
+      "repIndex": 3,
+      "faults": []
+    },
+    {
+      "repIndex": 4,
+      "faults": []
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "clip": "squat_clean_5reps",
+  "exercise": "squat",
+  "trueRepCount": 5,
+  "reps": [
+    {
+      "repIndex": 1,
+      "faults": []
+    },
+    {
+      "repIndex": 2,
+      "faults": []
+    },
+    {
+      "repIndex": 3,
+      "faults": []
+    },
+    {
+      "repIndex": 4,
+      "faults": []
+    },
+    {
+      "repIndex": 5,
+      "faults": []
+    }
+  ]
+}

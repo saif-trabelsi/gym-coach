@@ -4,6 +4,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session as DBSession, select
 
 from app.db import get_session
+from app.dependencies import get_device_id
 from app.models import Rep, RepReplay, Session, WorkoutSet
 from app.schemas import (
     RepRead,
@@ -56,11 +57,13 @@ def format_session_detail(session_obj: Session) -> SessionDetailRead:
 @router.post("", response_model=SessionDetailRead, status_code=status.HTTP_201_CREATED)
 def create_session(
     session_in: SessionCreate,
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
     session_db = Session(
         started_at=session_in.started_at,
         ended_at=session_in.ended_at,
+        device_id=device_id,
     )
     db.add(session_db)
     db.flush()
@@ -111,9 +114,13 @@ def create_session(
 
 
 @router.get("", response_model=List[SessionSummaryRead])
-def list_sessions(db: DBSession = Depends(get_session)):
+def list_sessions(
+    device_id: str = Depends(get_device_id),
+    db: DBSession = Depends(get_session),
+):
     statement = (
         select(Session)
+        .where(Session.device_id == device_id)
         .order_by(Session.started_at.desc(), Session.id.desc())
         .options(selectinload(Session.sets).selectinload(WorkoutSet.reps))
     )
@@ -151,11 +158,12 @@ def list_sessions(db: DBSession = Depends(get_session)):
 @router.get("/{session_id}", response_model=SessionDetailRead)
 def get_session_detail(
     session_id: int,
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
     statement = (
         select(Session)
-        .where(Session.id == session_id)
+        .where(Session.id == session_id, Session.device_id == device_id)
         .options(
             selectinload(Session.sets)
             .selectinload(WorkoutSet.reps)
@@ -173,11 +181,12 @@ def get_session_detail(
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_session(
     session_id: int,
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
     statement = (
         select(Session)
-        .where(Session.id == session_id)
+        .where(Session.id == session_id, Session.device_id == device_id)
         .options(
             selectinload(Session.sets)
             .selectinload(WorkoutSet.reps)

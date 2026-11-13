@@ -1,11 +1,33 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { listSessions, deleteSession, type SessionListItem } from '../api/client';
+import { groupSessionsByDay, formatDuration, formatLocalTime } from '../analytics/dates';
+import { Button } from './kit/Button';
+import { Card } from './kit/Card';
+import { Badge } from './kit/Badge';
+import { ScoreRing } from './kit/ScoreRing';
+import { Skeleton } from './kit/Skeleton';
+import { EmptyState } from './kit/EmptyState';
+import { Dialog } from './kit/Dialog';
+import {
+  History as HistoryIcon,
+  RotateCcw,
+  Trash2,
+  Dumbbell,
+  Clock,
+  Filter,
+  Calendar,
+  Flame,
+  ArrowRight,
+} from 'lucide-react';
 
-interface HistoryViewProps {
+export interface HistoryViewProps {
   backendOnline: boolean | null;
   onSelectSession: (id: number) => void;
   onGoToCoach: () => void;
 }
+
+export type ExerciseFilter = 'all' | 'squat' | 'bicepCurl';
+export type DateRangeFilter = 'all' | '7d' | '30d';
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   backendOnline,
@@ -15,7 +37,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Filters
+  const [exerciseFilter, setExerciseFilter] = useState<ExerciseFilter>('all');
+  const [dateRangeFilter, setDateRangeFilter] = useState<DateRangeFilter>('all');
+
+  // Deletion modal state
+  const [deletingSession, setDeletingSession] = useState<SessionListItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   const fetchHistory = useCallback(async () => {
     setLoading(true);
@@ -34,201 +63,292 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     fetchHistory();
   }, [fetchHistory]);
 
-  const handleDelete = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this workout session? This action cannot be undone.')) {
-      return;
-    }
-    setDeletingId(id);
+  const confirmDelete = async () => {
+    if (!deletingSession) return;
+    setIsDeleting(true);
     try {
-      await deleteSession(id);
+      await deleteSession(deletingSession.id);
+      setDeletingSession(null);
       await fetchHistory();
     } catch (err: unknown) {
       alert(`Failed to delete session: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
-      setDeletingId(null);
+      setIsDeleting(false);
     }
   };
 
-  const formatDuration = (startStr: string, endStr: string): string => {
-    const start = new Date(startStr).getTime();
-    const end = new Date(endStr).getTime();
-    if (isNaN(start) || isNaN(end) || end < start) return '-';
-    const totalSec = Math.max(0, Math.round((end - start) / 1000));
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    if (mins === 0) return `${secs}s`;
-    return `${mins}m ${secs}s`;
-  };
+  // Filter sessions by exercise and date range
+  const filteredSessions = useMemo(() => {
+    let result = sessions;
 
-  const formatLocalDateTime = (utcStr: string): string => {
-    const d = new Date(utcStr);
-    if (isNaN(d.getTime())) return utcStr;
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
+    // Filter by exercise
+    if (exerciseFilter !== 'all') {
+      result = result.filter((s) => s.exercises?.includes(exerciseFilter));
+    }
 
-  const getScoreBadgeClass = (score: number | null): string => {
-    if (score === null) return 'bg-slate-800 text-slate-400 border-slate-700';
-    if (score >= 85) return 'bg-emerald-950 text-emerald-300 border-emerald-600/50';
-    if (score >= 70) return 'bg-amber-950 text-amber-300 border-amber-600/50';
-    return 'bg-rose-950 text-rose-300 border-rose-600/50';
-  };
+    // Filter by date range
+    if (dateRangeFilter !== 'all') {
+      const now = Date.now();
+      const cutoffDays = dateRangeFilter === '7d' ? 7 : 30;
+      const cutoffMs = now - cutoffDays * 24 * 60 * 60 * 1000;
+      result = result.filter((s) => new Date(s.started_at).getTime() >= cutoffMs);
+    }
+
+    return result;
+  }, [sessions, exerciseFilter, dateRangeFilter]);
+
+  // Group by day with relative headers (Today, Yesterday, etc.)
+  const dayGroups = useMemo(() => {
+    return groupSessionsByDay(filteredSessions);
+  }, [filteredSessions]);
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 p-4">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+      {/* Header & Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--border-subtle)]">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <span>📜</span> Workout History
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-black text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+              <HistoryIcon className="w-5 h-5 text-[var(--accent)]" />
+              Workout History
+            </h1>
+            <Badge variant="neutral" size="sm">
+              {filteredSessions.length} session{filteredSessions.length === 1 ? '' : 's'}
+            </Badge>
+          </div>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">
             Browse past workout sessions, performance summaries, and drill down into set fatigue curves.
           </p>
         </div>
-        <button
+
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={fetchHistory}
           disabled={loading}
-          className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors flex items-center gap-1.5"
+          leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
         >
-          <span>🔄</span> Refresh
-        </button>
+          Refresh
+        </Button>
       </div>
 
-      {/* Backend Offline Warning */}
+      {/* Filter Chips Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-2.5 rounded-[var(--radius-xl)] text-xs">
+        {/* Exercise Filter Chips */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[var(--text-muted)] font-semibold flex items-center gap-1 me-1">
+            <Filter className="w-3.5 h-3.5" /> Exercise:
+          </span>
+          {(['all', 'squat', 'bicepCurl'] as ExerciseFilter[]).map((ex) => (
+            <button
+              key={ex}
+              type="button"
+              onClick={() => setExerciseFilter(ex)}
+              className={`px-2.5 py-1 rounded-full font-medium transition-all cursor-pointer ${
+                exerciseFilter === ex
+                  ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                  : 'bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]'
+              }`}
+            >
+              {ex === 'all' ? 'All' : ex === 'squat' ? 'Squat' : 'Bicep Curl'}
+            </button>
+          ))}
+        </div>
+
+        {/* Date Range Chips */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[var(--text-muted)] font-semibold flex items-center gap-1 me-1">
+            <Calendar className="w-3.5 h-3.5" /> Date:
+          </span>
+          {(['all', '7d', '30d'] as DateRangeFilter[]).map((range) => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => setDateRangeFilter(range)}
+              className={`px-2.5 py-1 rounded-full font-medium transition-all cursor-pointer ${
+                dateRangeFilter === range
+                  ? 'bg-[var(--accent)] text-[var(--accent-contrast)] shadow-sm'
+                  : 'bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-default)]'
+              }`}
+            >
+              {range === 'all' ? 'All time' : range === '7d' ? 'Last 7 days' : 'Last 30 days'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Offline banner warning */}
       {backendOnline === false && (
-        <div className="bg-rose-950/60 border border-rose-600/40 rounded-xl p-3 text-xs text-rose-300 flex items-center gap-2">
-          <span>⚠️</span>
-          <span>Backend is offline. History cannot be retrieved or updated until the server is reachable.</span>
+        <div
+          role="alert"
+          className="bg-[var(--status-danger-bg)] border border-[var(--status-danger-border)] text-[var(--status-danger)] rounded-[var(--radius-lg)] p-3 text-xs flex items-center gap-2"
+        >
+          <span>The backend is currently unreachable. Workout history may be incomplete.</span>
         </div>
       )}
 
-      {/* Loading State */}
+      {/* Error state */}
+      {error && (
+        <div className="bg-[var(--status-danger-bg)] border border-[var(--status-danger-border)] text-[var(--status-danger)] rounded-[var(--radius-xl)] p-4 text-xs flex items-center justify-between">
+          <span>{error}</span>
+          <Button variant="secondary" size="sm" onClick={fetchHistory}>
+            Try Again
+          </Button>
+        </div>
+      )}
+
+      {/* Loading Skeleton List */}
       {loading && (
-        <div className="py-16 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
-          <svg className="animate-spin h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span>Loading workouts...</span>
-        </div>
-      )}
-
-      {/* Error State */}
-      {!loading && error && (
-        <div className="bg-rose-950/60 border border-rose-700/50 rounded-2xl p-6 text-center flex flex-col items-center gap-3">
-          <span className="text-2xl">⚠️</span>
-          <p className="text-sm font-semibold text-rose-200">{error}</p>
-          <button
-            onClick={fetchHistory}
-            className="px-4 py-2 bg-rose-800 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow transition-all"
-          >
-            Retry
-          </button>
+        <div data-testid="history-skeleton-list" className="flex flex-col gap-4">
+          <Skeleton variant="text" width={120} height={20} />
+          <div className="grid grid-cols-1 gap-3">
+            {[1, 2, 3].map((n) => (
+              <Card key={n} className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-4">
+                  <Skeleton variant="circular" width={52} height={52} />
+                  <div className="flex flex-col gap-2">
+                    <Skeleton variant="text" width={140} height={16} />
+                    <Skeleton variant="text" width={90} height={12} />
+                  </div>
+                </div>
+                <Skeleton variant="rounded" width={80} height={32} />
+              </Card>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Empty State */}
-      {!loading && !error && sessions.length === 0 && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center flex flex-col items-center gap-4">
-          <span className="text-4xl">🏋️</span>
-          <div>
-            <h3 className="text-base font-bold text-slate-200">No workouts yet</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Start performing squats or bicep curls with the live AI coach to record your first workout!
-            </p>
-          </div>
-          <button
-            onClick={onGoToCoach}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 transition-all flex items-center gap-2"
-          >
-            <span>🎯</span> Go to Coach
-          </button>
-        </div>
+      {!loading && !error && filteredSessions.length === 0 && (
+        <EmptyState
+          icon={<HistoryIcon className="w-6 h-6" />}
+          title="No workouts found"
+          description={
+            exerciseFilter !== 'all' || dateRangeFilter !== 'all'
+              ? 'No sessions match your filter criteria. Try clearing filters.'
+              : 'You have not recorded any workouts yet. Start your first session to track progress.'
+          }
+          action={
+            <Button variant="primary" size="md" onClick={onGoToCoach} rightIcon={<ArrowRight className="w-4 h-4" />}>
+              Start a Workout
+            </Button>
+          }
+        />
       )}
 
-      {/* Sessions List Cards */}
-      {!loading && !error && sessions.length > 0 && (
-        <div className="grid grid-cols-1 gap-3">
-          {sessions.map((sess) => {
-            const isDeleting = deletingId === sess.id;
-            return (
-              <div
-                key={sess.id}
-                onClick={() => onSelectSession(sess.id)}
-                className="bg-slate-900/80 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 transition-all cursor-pointer shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 group"
-              >
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors">
-                      {formatLocalDateTime(sess.started_at)}
-                    </span>
-                    <span className="text-xs text-slate-500 font-mono">
-                      ({formatDuration(sess.started_at, sess.ended_at)})
-                    </span>
-                  </div>
-
-                  {/* Exercises Chips */}
-                  <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                    {sess.exercises.map((ex) => (
-                      <span
-                        key={ex}
-                        className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700/80 capitalize"
-                      >
-                        {ex === 'squat' ? '🦵 Squat' : '💪 Bicep Curl'}
-                      </span>
-                    ))}
-                    <span className="text-xs text-slate-400 ml-1">
-                      · <strong className="text-slate-200">{sess.total_reps}</strong> reps total
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 self-end sm:self-center">
-                  {/* Average Score Badge */}
-                  <div
-                    className={`px-3 py-1 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${getScoreBadgeClass(
-                      sess.average_score
-                    )}`}
-                  >
-                    <span>Score:</span>
-                    <span>{sess.average_score !== null ? sess.average_score.toFixed(1) : '-'}</span>
-                  </div>
-
-                  {/* Delete Button */}
-                  <button
-                    onClick={(e) => handleDelete(e, sess.id)}
-                    disabled={isDeleting}
-                    title="Delete workout session"
-                    className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 border border-transparent hover:border-rose-900/40 transition-colors"
-                  >
-                    {isDeleting ? (
-                      <svg className="animate-spin h-4 w-4 text-rose-400" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    )}
-                  </button>
-
-                  {/* Chevron Right */}
-                  <svg className="w-4 h-4 text-slate-500 group-hover:text-slate-300 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
+      {/* Grouped Workout Cards */}
+      {!loading && !error && dayGroups.length > 0 && (
+        <div className="flex flex-col gap-8">
+          {dayGroups.map((group) => (
+            <div key={group.dateKey} className="flex flex-col gap-3">
+              {/* Relative Date Header */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">
+                  {group.label}
+                </span>
+                <div className="flex-1 h-px bg-[var(--border-subtle)]" />
               </div>
-            );
-          })}
+
+              {/* Day Sessions List */}
+              <div className="grid grid-cols-1 gap-3">
+                {group.items.map((s) => {
+                  const duration = formatDuration(s.started_at, s.ended_at);
+                  const time = formatLocalTime(s.started_at);
+                  const score = s.average_score !== null ? Math.round(s.average_score) : null;
+
+                  return (
+                    <Card
+                      key={s.id}
+                      onClick={() => onSelectSession(s.id)}
+                      className="group cursor-pointer hover:border-[var(--accent)] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 shadow-sm"
+                    >
+                      <div className="flex items-center gap-4">
+                        {/* Small ScoreRing or Score placeholder */}
+                        {score !== null ? (
+                          <ScoreRing score={score} size={50} strokeWidth={5} />
+                        ) : (
+                          <div className="w-[50px] h-[50px] rounded-full border border-[var(--border-subtle)] flex items-center justify-center font-mono text-xs text-[var(--text-muted)]">
+                            --
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm text-[var(--text-primary)]">
+                              Session #{s.id}
+                            </span>
+                            <span className="text-xs text-[var(--text-muted)]">· {time}</span>
+                          </div>
+
+                          {/* Exercise Badges & Duration */}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {s.exercises?.map((ex) => (
+                              <Badge key={ex} variant="neutral" size="sm">
+                                {ex === 'squat' ? (
+                                  <Flame className="w-3 h-3 text-emerald-400 inline me-1" />
+                                ) : (
+                                  <Dumbbell className="w-3 h-3 text-cyan-400 inline me-1" />
+                                )}
+                                {ex === 'squat' ? 'Squat' : 'Bicep Curl'}
+                              </Badge>
+                            ))}
+
+                            <span className="text-xs text-[var(--text-secondary)] flex items-center gap-1 font-mono">
+                              <Clock className="w-3 h-3 text-[var(--text-muted)]" />
+                              {duration}
+                            </span>
+
+                            <span className="text-xs text-[var(--text-secondary)] font-mono font-medium">
+                              {s.total_reps} reps
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Actions: Drill Down Arrow & Delete Button */}
+                      <div className="flex items-center justify-end gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-[var(--border-subtle)]">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingSession(s);
+                          }}
+                          aria-label={`Delete session ${s.id}`}
+                          title="Delete workout session"
+                          className="p-2 rounded-[var(--radius-lg)] text-[var(--text-muted)] hover:text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)] transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+
+                        <span className="text-xs font-semibold text-[var(--accent)] group-hover:translate-x-0.5 transition-transform hidden sm:inline-flex items-center gap-1">
+                          View Analysis <ArrowRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
+
+      {/* Accessible Delete Confirmation Dialog */}
+      <Dialog
+        isOpen={deletingSession !== null}
+        onClose={() => setDeletingSession(null)}
+        title="Delete Workout Session?"
+        description={`Are you sure you want to delete session #${deletingSession?.id}? All recorded sets, biomechanical metrics, replays, and coaching reports will be permanently deleted.`}
+      >
+        <div className="flex justify-end gap-3 mt-5">
+          <Button variant="ghost" onClick={() => setDeletingSession(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={confirmDelete} isLoading={isDeleting}>
+            Yes, Delete
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 };

@@ -12,13 +12,15 @@ export function fallbackReasonLabel(reason: FallbackReason | null | undefined): 
       return 'The AI service is unavailable';
     case 'invalid_output':
       return 'The AI answer was not usable, showing the standard report';
+    case 'quota_exceeded':
+      return 'Daily report limit reached';
     default:
       return '';
   }
 }
 
 export function canRetryAI(reason: FallbackReason | null | undefined): boolean {
-  return reason !== 'no_api_key';
+  return reason !== 'no_api_key' && reason !== 'quota_exceeded';
 }
 
 export function formatReportAsText(report: ReportRead): string {

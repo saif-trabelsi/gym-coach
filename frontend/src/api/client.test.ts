@@ -8,6 +8,8 @@ import {
   getProgress,
   getReport,
   generateReport,
+  exportDeviceData,
+  deleteDeviceData,
   NetworkError,
   TimeoutError,
   ValidationError,
@@ -339,6 +341,48 @@ describe('API Client (client.ts)', () => {
         expect(err).toBeInstanceOf(NetworkError);
         expect((err as NetworkError).message).toContain('Backend unreachable');
       }
+    });
+
+    it('attaches X-Device-Id header to requests', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify([]), { status: 200 })
+      );
+
+      await listSessions();
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/sessions'),
+        expect.objectContaining({
+          headers: expect.any(Headers),
+        })
+      );
+      const callHeaders = (vi.mocked(globalThis.fetch).mock.calls[0][1]?.headers as Headers);
+      expect(callHeaders.get('X-Device-Id')).toBeTruthy();
+    });
+
+    it('exportDeviceData sends GET /device/export and returns json', async () => {
+      const mockExport = { device_id: 'test', total_sessions: 1, sessions: [] };
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(JSON.stringify(mockExport), { status: 200 })
+      );
+
+      const result = await exportDeviceData();
+      expect(result).toEqual(mockExport);
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/device/export'),
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('deleteDeviceData sends DELETE /device', async () => {
+      globalThis.fetch = vi.fn().mockResolvedValueOnce(
+        new Response(null, { status: 204 })
+      );
+
+      await deleteDeviceData();
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/device'),
+        expect.objectContaining({ method: 'DELETE' })
+      );
     });
   });
 });

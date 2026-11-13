@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTheme, type Theme } from '../../design/theme';
-import { Dumbbell, History, TrendingUp, Sun, Moon, Laptop, Activity, Wifi, WifiOff } from 'lucide-react';
+import type { AppView } from '../../analytics/navigation';
+import { Dumbbell, History, TrendingUp, Sun, Moon, Laptop, Activity, Wifi, WifiOff, ShieldCheck } from 'lucide-react';
+import { PrivacyModal } from './PrivacyModal';
 
 export interface AppShellProps {
-  currentView: 'coach' | 'history' | 'progress' | 'design';
+  currentView: AppView;
   backendOnline: boolean | null;
   inProgressReps?: number;
   children: React.ReactNode;
@@ -74,6 +76,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   inProgressReps = 0,
   children,
 }) => {
+  const [isPrivacyOpen, setIsPrivacyOpen] = useState(false);
+
   const navItems = [
     { id: 'coach', label: 'Coach', href: '#coach', icon: <Dumbbell className="w-4 h-4" /> },
     { id: 'history', label: 'History', href: '#history', icon: <History className="w-4 h-4" /> },
@@ -168,6 +172,16 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className="flex items-center gap-2">
             <BackendStatusPill online={backendOnline} />
             <ThemeToggle />
+            <button
+              type="button"
+              onClick={() => setIsPrivacyOpen(true)}
+              aria-label="Privacy and device data settings"
+              title="Privacy & Device Data"
+              className="p-2 rounded-[var(--radius-lg)] bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] hover:border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span className="sr-only">Privacy & Device Data</span>
+            </button>
           </div>
         </div>
       </header>
@@ -216,12 +230,22 @@ export const AppShell: React.FC<AppShellProps> = ({
             <a href="#coach" className="hover:text-[var(--text-primary)]">Coach</a>
             <a href="#history" className="hover:text-[var(--text-primary)]">History</a>
             <a href="#progress" className="hover:text-[var(--text-primary)]">Progress</a>
+            <button
+              type="button"
+              onClick={() => setIsPrivacyOpen(true)}
+              className="hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            >
+              Privacy & Data
+            </button>
             {import.meta.env?.DEV && (
               <a href="#design" className="hover:text-[var(--text-primary)] font-mono text-[11px]">#design</a>
             )}
           </div>
         </div>
       </footer>
+
+      {/* Privacy and Data Controls Modal */}
+      <PrivacyModal isOpen={isPrivacyOpen} onClose={() => setIsPrivacyOpen(false)} />
     </div>
   );
 };

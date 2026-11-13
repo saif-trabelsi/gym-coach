@@ -12,15 +12,38 @@ import {
   Legend,
 } from 'recharts';
 import { getProgress, type ProgressRow } from '../api/client';
-import { filterByRange, kpis, tzOffsetMinutes } from '../analytics/progress';
+import { tzOffsetMinutes } from '../analytics/progress';
+import { computeProgressWithDeltas } from '../analytics/progressDeltas';
+import { scoreTone } from '../design/scoreTone';
+import { getChartTheme } from './chartTheme';
+import { Card } from './kit/Card';
+import { Badge } from './kit/Badge';
+import { Button } from './kit/Button';
+import { StatTile } from './kit/StatTile';
+import { Skeleton } from './kit/Skeleton';
+import { EmptyState } from './kit/EmptyState';
+import { SegmentedControl, type SegmentedOption } from './kit/SegmentedControl';
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Dumbbell,
+  Flame,
+  Calendar,
+  Layers,
+  ArrowRight,
+  RotateCcw,
+  BarChart3,
+  Award,
+} from 'lucide-react';
 
 interface ProgressViewProps {
   backendOnline: boolean | null;
   onGoToCoach: () => void;
 }
 
-type ExerciseFilter = 'all' | 'squat' | 'bicepCurl';
-type RangeFilter = '7d' | '30d' | 'all';
+export type ExerciseFilter = 'all' | 'squat' | 'bicepCurl';
+export type RangeFilter = '7d' | '30d' | 'all';
 
 export const ProgressView: React.FC<ProgressViewProps> = ({
   backendOnline,
@@ -31,6 +54,8 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
   const [rows, setRows] = useState<ProgressRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  const chartTheme = useMemo(() => getChartTheme(), []);
 
   const fetchStats = async (exercise: ExerciseFilter) => {
     setLoading(true);
@@ -52,24 +77,12 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
     fetchStats(exerciseFilter);
   }, [exerciseFilter]);
 
-  // Apply range filter relative to today's date
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }, []);
+  // Compute metrics and deltas vs previous equal period
+  const metrics = useMemo(() => {
+    return computeProgressWithDeltas(rows, rangeFilter);
+  }, [rows, rangeFilter]);
 
-  const filteredRows = useMemo(() => {
-    return filterByRange(rows, rangeFilter, todayStr);
-  }, [rows, rangeFilter, todayStr]);
-
-  const statsKpis = useMemo(() => {
-    return kpis(filteredRows);
-  }, [filteredRows]);
-
-  // Pivot data by date for Recharts
+  // Prepare chart data pivoted by date for Recharts
   const chartData = useMemo(() => {
     const byDate: Record<
       string,
@@ -84,7 +97,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
       }
     > = {};
 
-    for (const r of filteredRows) {
+    for (const r of metrics.currentRows) {
       if (!byDate[r.date]) {
         byDate[r.date] = {
           date: r.date,
@@ -107,222 +120,237 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
     }
 
     return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [filteredRows, exerciseFilter]);
+  }, [metrics.currentRows, exerciseFilter]);
+
+  const rangeOptions: SegmentedOption<RangeFilter>[] = [
+    { value: '7d', label: '7 Days' },
+    { value: '30d', label: '30 Days' },
+    { value: 'all', label: 'All Time' },
+  ];
+
+  const exerciseOptions: SegmentedOption<ExerciseFilter>[] = [
+    { value: 'all', label: 'All Exercises' },
+    { value: 'squat', label: 'Squat' },
+    { value: 'bicepCurl', label: 'Bicep Curl' },
+  ];
+
+  const formatDeltaSubValue = (
+    delta: number | null,
+    pct: number | null,
+    suffix = ''
+  ) => {
+    if (delta === null) return null;
+    if (delta === 0) {
+      return (
+        <span className="inline-flex items-center gap-0.5 text-xs text-[var(--text-muted)] font-mono">
+          <Minus className="w-3 h-3" /> 0{suffix}
+        </span>
+      );
+    }
+    const isPos = delta > 0;
+    return (
+      <span
+        className={`inline-flex items-center gap-0.5 text-xs font-mono font-semibold ${
+          isPos ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'
+        }`}
+      >
+        {isPos ? (
+          <TrendingUp className="w-3 h-3" />
+        ) : (
+          <TrendingDown className="w-3 h-3" />
+        )}
+        {isPos ? `+${delta}` : delta}
+        {suffix}
+        {pct !== null && ` (${isPos ? `+${pct}` : pct}%)`}
+      </span>
+    );
+  };
 
   return (
     <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 p-4">
-      {/* View Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      {/* View Header & Filter Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <span>📈</span> Progress & Analytics
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Track your workout consistency, daily rep volumes, and form improvements over time.
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-black text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-[var(--accent)]" />
+              Progress & Analytics
+            </h1>
+            <Badge variant="neutral" size="sm">
+              {rangeFilter === '7d' ? 'Last 7 Days' : rangeFilter === '30d' ? 'Last 30 Days' : 'All Time'}
+            </Badge>
+          </div>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">
+            Track workout consistency, volume progression, and form improvement curves over time.
           </p>
         </div>
 
-        {/* Filter Controls */}
+        {/* Filter Controls Bar */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Exercise Filter */}
-          <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
-            <button
-              onClick={() => setExerciseFilter('all')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                exerciseFilter === 'all'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setExerciseFilter('squat')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                exerciseFilter === 'squat'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Squat
-            </button>
-            <button
-              onClick={() => setExerciseFilter('bicepCurl')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                exerciseFilter === 'bicepCurl'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Curl
-            </button>
-          </div>
-
-          {/* Range Filter */}
-          <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-700/80 text-xs font-semibold">
-            <button
-              onClick={() => setRangeFilter('7d')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                rangeFilter === '7d'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              7 Days
-            </button>
-            <button
-              onClick={() => setRangeFilter('30d')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                rangeFilter === '30d'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              30 Days
-            </button>
-            <button
-              onClick={() => setRangeFilter('all')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                rangeFilter === 'all'
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              All Time
-            </button>
-          </div>
+          <SegmentedControl
+            value={exerciseFilter}
+            onChange={(val) => setExerciseFilter(val)}
+            options={exerciseOptions}
+            size="sm"
+            ariaLabel="Filter by exercise"
+          />
+          <SegmentedControl
+            value={rangeFilter}
+            onChange={(val) => setRangeFilter(val)}
+            options={rangeOptions}
+            size="sm"
+            ariaLabel="Filter by date range"
+          />
         </div>
       </div>
 
       {/* Backend Offline Warning */}
       {backendOnline === false && (
-        <div className="bg-rose-950/60 border border-rose-600/40 rounded-xl p-3 text-xs text-rose-300 flex items-center gap-2">
-          <span>⚠️</span>
-          <span>Backend is offline. Progress data cannot be loaded until the server is running.</span>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {loading && (
-        <div className="py-20 flex flex-col items-center justify-center gap-3 text-slate-400 text-sm">
-          <svg className="animate-spin h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-          <span>Loading analytics...</span>
+        <div
+          role="alert"
+          className="bg-[var(--status-danger-bg)] border border-[var(--status-danger-border)] text-[var(--status-danger)] rounded-[var(--radius-lg)] p-3 text-xs flex items-center gap-2"
+        >
+          <span>The backend is currently unreachable. Progress analytics may be incomplete.</span>
         </div>
       )}
 
       {/* Error State */}
       {!loading && error && (
-        <div className="bg-rose-950/60 border border-rose-700/50 rounded-2xl p-6 text-center flex flex-col items-center gap-3">
-          <span className="text-2xl">⚠️</span>
-          <p className="text-sm font-semibold text-rose-200">{error}</p>
-          <button
+        <Card className="p-6 text-center flex flex-col items-center gap-3 border-[var(--status-danger-border)]">
+          <p className="text-sm font-semibold text-[var(--status-danger)]">{error}</p>
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => fetchStats(exerciseFilter)}
-            className="px-4 py-2 bg-rose-800 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow transition-all"
+            leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
           >
             Retry
-          </button>
+          </Button>
+        </Card>
+      )}
+
+      {/* Loading Skeleton State */}
+      {loading && (
+        <div className="flex flex-col gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            {[1, 2, 3, 4].map((n) => (
+              <Card key={n} className="p-4 flex flex-col gap-2">
+                <Skeleton variant="text" width={80} height={14} />
+                <Skeleton variant="text" width={60} height={28} />
+                <Skeleton variant="text" width={100} height={12} />
+              </Card>
+            ))}
+          </div>
+          <Card className="p-5 h-64 flex flex-col gap-4">
+            <Skeleton variant="text" width={180} height={20} />
+            <Skeleton variant="rounded" height={180} />
+          </Card>
         </div>
       )}
 
       {/* Empty State */}
-      {!loading && !error && filteredRows.length === 0 && (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center flex flex-col items-center gap-4">
-          <span className="text-4xl">📊</span>
-          <div>
-            <h3 className="text-base font-bold text-slate-200">No workout stats found</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              {rangeFilter !== 'all'
-                ? `No recorded workouts in the selected range (${rangeFilter}). Try changing the filter or record a workout with the coach!`
-                : 'No recorded workouts found in your database. Start moving to see your progress!'}
-            </p>
-          </div>
-          <button
-            onClick={onGoToCoach}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/30 transition-all flex items-center gap-2"
-          >
-            <span>🎯</span> Go to Coach
-          </button>
-        </div>
+      {!loading && !error && metrics.currentRows.length === 0 && (
+        <EmptyState
+          icon={<BarChart3 className="w-8 h-8 text-[var(--accent)]" />}
+          title="No workout data found"
+          description={
+            rangeFilter !== 'all'
+              ? `No workouts recorded in the selected range (${rangeFilter === '7d' ? 'Last 7 days' : 'Last 30 days'}). Try expanding the filter or record a workout with the coach!`
+              : 'No recorded workouts found in your workout history. Start a session to build your progress trends!'
+          }
+          action={
+            <Button
+              variant="primary"
+              size="md"
+              onClick={onGoToCoach}
+              rightIcon={<ArrowRight className="w-4 h-4" />}
+            >
+              Start a Workout
+            </Button>
+          }
+        />
       )}
 
-      {/* Main Stats Content */}
-      {!loading && !error && filteredRows.length > 0 && (
+      {/* Main Analytics Content */}
+      {!loading && !error && metrics.currentRows.length > 0 && (
         <div className="flex flex-col gap-6">
-          {/* KPI Cards */}
+          {/* KPI Tiles with deltas */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Active Days
-              </div>
-              <div className="text-2xl font-black text-white mt-1">
-                {statsKpis.workoutsCount}
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Days with recorded reps</div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Total Reps
-              </div>
-              <div className="text-2xl font-black text-cyan-400 mt-1">
-                {statsKpis.totalReps}
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Volume completed</div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Average Score
-              </div>
-              <div className="text-2xl font-black text-emerald-400 mt-1">
-                {statsKpis.overallAverageScore}
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Weighted by reps</div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                Best Day
-              </div>
-              <div className="text-base font-bold text-amber-300 mt-2 font-mono truncate">
-                {statsKpis.bestDay || '-'}
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">Highest form score</div>
-            </div>
+            <StatTile
+              label="Total Reps"
+              value={metrics.totalReps.current}
+              subValue={formatDeltaSubValue(metrics.totalReps.delta, metrics.totalReps.pctChange)}
+              icon={<Dumbbell className="w-4 h-4 text-[var(--accent)]" />}
+            />
+            <StatTile
+              label="Avg Score"
+              value={metrics.averageScore.current}
+              subValue={formatDeltaSubValue(metrics.averageScore.delta, null, ' pts')}
+              tone={scoreTone(metrics.averageScore.current)}
+              icon={<Award className="w-4 h-4 text-emerald-400" />}
+            />
+            <StatTile
+              label="Active Days"
+              value={metrics.activeDays.current}
+              subValue={formatDeltaSubValue(metrics.activeDays.delta, null, ' days')}
+              icon={<Calendar className="w-4 h-4 text-cyan-400" />}
+            />
+            <StatTile
+              label="Focus"
+              value={
+                metrics.mostTrained === 'squat'
+                  ? 'Squat'
+                  : metrics.mostTrained === 'bicepCurl'
+                  ? 'Bicep Curl'
+                  : '-'
+              }
+              subValue={
+                metrics.mostTrained ? (
+                  <span className="text-[10px] text-[var(--text-muted)] font-sans">
+                    Most trained exercise
+                  </span>
+                ) : null
+              }
+              icon={
+                metrics.mostTrained === 'squat' ? (
+                  <Flame className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Layers className="w-4 h-4 text-cyan-400" />
+                )
+              }
+            />
           </div>
 
-          {/* Line Chart: Average Score per Day */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col gap-3">
+          {/* Line Chart: Average Form Score per Day */}
+          <Card className="p-5 shadow-sm flex flex-col gap-3 border-[var(--border-subtle)]">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>🎯</span> Average Form Score per Day
-              </h3>
-              <span className="text-[11px] text-slate-500 font-mono">Scale 0 - 100</span>
+              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-[var(--accent)]" />
+                Average Form Score per Day
+              </h2>
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">Scale 0 - 100</span>
             </div>
             <div className="w-full h-64 pt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 10, right: 20, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} opacity={0.5} />
                   <XAxis
                     dataKey="date"
-                    stroke="#94a3b8"
+                    stroke={chartTheme.axisText}
                     fontSize={11}
                     tickLine={false}
                   />
                   <YAxis
                     domain={[0, 100]}
-                    stroke="#94a3b8"
+                    stroke={chartTheme.axisText}
                     fontSize={11}
                     tickLine={false}
                     ticks={[0, 25, 50, 75, 100]}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
+                      backgroundColor: chartTheme.tooltipBg,
+                      borderColor: chartTheme.tooltipBorder,
                       borderRadius: '0.75rem',
                       fontSize: '12px',
                     }}
@@ -335,9 +363,9 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
                         type="monotone"
                         dataKey="squatScore"
                         name="Squat Avg Score"
-                        stroke="#06b6d4"
+                        stroke="#10b981"
                         strokeWidth={2.5}
-                        dot={{ r: 4, fill: '#06b6d4', strokeWidth: 0 }}
+                        dot={{ r: 4, fill: '#10b981', strokeWidth: 0 }}
                         activeDot={{ r: 6 }}
                         connectNulls
                       />
@@ -345,9 +373,9 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
                         type="monotone"
                         dataKey="bicepCurlScore"
                         name="Curl Avg Score"
-                        stroke="#8b5cf6"
+                        stroke="#06b6d4"
                         strokeWidth={2.5}
-                        dot={{ r: 4, fill: '#8b5cf6', strokeWidth: 0 }}
+                        dot={{ r: 4, fill: '#06b6d4', strokeWidth: 0 }}
                         activeDot={{ r: 6 }}
                         connectNulls
                       />
@@ -357,45 +385,46 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
                       type="monotone"
                       dataKey="score"
                       name={`${exerciseFilter === 'squat' ? 'Squat' : 'Bicep Curl'} Score`}
-                      stroke="#10b981"
+                      stroke={chartTheme.accent}
                       strokeWidth={2.5}
-                      dot={{ r: 4, fill: '#10b981', strokeWidth: 0 }}
+                      dot={{ r: 4, fill: chartTheme.accent, strokeWidth: 0 }}
                       activeDot={{ r: 6 }}
                     />
                   )}
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </Card>
 
           {/* Bar Chart: Reps per Day */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col gap-3">
+          <Card className="p-5 shadow-sm flex flex-col gap-3 border-[var(--border-subtle)]">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>💪</span> Reps per Day (Volume)
-              </h3>
-              <span className="text-[11px] text-slate-500 font-mono">Total repetitions</span>
+              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <Dumbbell className="w-4 h-4 text-[var(--accent)]" />
+                Reps per Day (Volume)
+              </h2>
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">Total repetitions</span>
             </div>
             <div className="w-full h-56 pt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 10, right: 20, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.4} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} opacity={0.5} />
                   <XAxis
                     dataKey="date"
-                    stroke="#94a3b8"
+                    stroke={chartTheme.axisText}
                     fontSize={11}
                     tickLine={false}
                   />
                   <YAxis
-                    stroke="#94a3b8"
+                    stroke={chartTheme.axisText}
                     fontSize={11}
                     tickLine={false}
                     allowDecimals={false}
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#0f172a',
-                      borderColor: '#334155',
+                      backgroundColor: chartTheme.tooltipBg,
+                      borderColor: chartTheme.tooltipBorder,
                       borderRadius: '0.75rem',
                       fontSize: '12px',
                     }}
@@ -404,21 +433,21 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
 
                   {exerciseFilter === 'all' ? (
                     <>
-                      <Bar dataKey="squatReps" name="Squat Reps" fill="#06b6d4" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="bicepCurlReps" name="Curl Reps" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="squatReps" name="Squat Reps" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="bicepCurlReps" name="Curl Reps" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                     </>
                   ) : (
                     <Bar
                       dataKey="totalReps"
                       name={`${exerciseFilter === 'squat' ? 'Squat' : 'Curl'} Reps`}
-                      fill="#6366f1"
+                      fill={chartTheme.accent}
                       radius={[4, 4, 0, 0]}
                     />
                   )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </Card>
         </div>
       )}
     </div>

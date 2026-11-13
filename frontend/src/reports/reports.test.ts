@@ -144,8 +144,10 @@ describe('Task 5.2 - State and formatting helpers (reports.test.ts)', () => {
     expect(fallbackReasonLabel('invalid_output')).toBe(
       'The AI answer was not usable, showing the standard report'
     );
+    expect(fallbackReasonLabel('quota_exceeded')).toBe('Daily report limit reached');
 
     expect(canRetryAI('no_api_key')).toBe(false);
+    expect(canRetryAI('quota_exceeded')).toBe(false);
     expect(canRetryAI('timeout')).toBe(true);
     expect(canRetryAI('rate_limited')).toBe(true);
     expect(canRetryAI('provider_error')).toBe(true);

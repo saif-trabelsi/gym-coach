@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session as DBSession, select
 
 from app.db import get_session
+from app.dependencies import get_device_id
 from app.models import Session, WorkoutSet
 from app.schemas import ProgressStatRead
 
@@ -25,10 +26,12 @@ def get_progress_stats(
         le=840,
         description="Timezone offset in minutes east of UTC (range -840 to 840, e.g. -300 for EST, +60 for CET) used to group reps into local calendar days.",
     ),
+    device_id: str = Depends(get_device_id),
     db: DBSession = Depends(get_session),
 ):
     statement = (
         select(Session)
+        .where(Session.device_id == device_id)
         .options(selectinload(Session.sets).selectinload(WorkoutSet.reps))
     )
     sessions = db.exec(statement).all()
