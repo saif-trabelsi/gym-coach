@@ -10,6 +10,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import random
 import sys
@@ -23,7 +24,27 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 DEMO_IDS_FILE = DATA_DIR / "demo_session_ids.json"
 
 
-def clear_demo_sessions(api_url: str):
+def get_target_device_id(explicit_id: str = None) -> str:
+    if explicit_id:
+        return explicit_id
+    db_file = DATA_DIR / "gymcoach.db"
+    if db_file.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(str(db_file))
+            cursor = conn.cursor()
+            cursor.execute("SELECT device_id FROM session WHERE device_id != 'legacy' ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+    return "00000000-0000-4000-8000-000000000001"
+
+
+def clear_demo_sessions(api_url: str, device_id: str = None):
+    target_device = get_target_device_id(device_id)
     if not DEMO_IDS_FILE.exists():
         print("No demo_session_ids.json found. Nothing to clear.")
         return
@@ -40,11 +61,12 @@ def clear_demo_sessions(api_url: str):
         return
 
     deleted_count = 0
-    print(f"Clearing {len(session_ids)} demo session(s) from {api_url}...")
+    print(f"Clearing {len(session_ids)} demo session(s) from {api_url} (device: {target_device})...")
 
     for sid in session_ids:
         req = urllib.request.Request(
             f"{api_url}/sessions/{sid}",
+            headers={"X-Device-Id": target_device},
             method="DELETE",
         )
         try:
@@ -162,7 +184,142 @@ def generate_rep(exercise: str, index: int, total_reps: int, base_time: datetime
     }
 
 
-def seed_demo_sessions(api_url: str):
+def generate_squat_replay(violations: list = None, fps: int = 15, num_frames: int = 40) -> dict:
+    if violations is None:
+        violations = []
+
+    highlight = []
+    if "depth" in violations:
+        highlight.append(25)  # Left knee
+    if "back" in violations:
+        highlight.extend([11, 23])  # Left shoulder, left hip
+
+    # If depth violation, shallower squat depth
+    depth_mult = 0.65 if "depth" in violations else 1.0
+
+    frames = []
+    for i in range(num_frames):
+        t = i / float(num_frames - 1)
+        d = math.sin(math.pi * t) * depth_mult
+        ankle_x, ankle_y = 0.50, 0.85
+        heel_x, heel_y = 0.46, 0.88
+        foot_x, foot_y = 0.58, 0.88
+        knee_x = 0.52 + 0.05 * d
+        knee_y = 0.65 - 0.02 * d
+        hip_x = 0.48 - 0.09 * d
+        hip_y = 0.46 + 0.15 * d
+        shoulder_x = 0.48 - 0.04 * d
+        shoulder_y = 0.25 + 0.14 * d
+        elbow_x = shoulder_x + 0.05
+        elbow_y = shoulder_y + 0.10
+        wrist_x = shoulder_x + 0.08
+        wrist_y = shoulder_y + 0.05
+        head_x = shoulder_x + 0.03
+        head_y = shoulder_y - 0.10
+
+        frame = [None] * 33
+        for h_idx in range(11):
+            frame[h_idx] = [round(head_x, 4), round(head_y + h_idx * 0.005, 4)]
+        frame[11] = [round(shoulder_x, 4), round(shoulder_y, 4)]
+        frame[12] = [round(shoulder_x + 0.02, 4), round(shoulder_y, 4)]
+        frame[13] = [round(elbow_x, 4), round(elbow_y, 4)]
+        frame[14] = [round(elbow_x + 0.02, 4), round(elbow_y, 4)]
+        frame[15] = [round(wrist_x, 4), round(wrist_y, 4)]
+        frame[16] = [round(wrist_x + 0.02, 4), round(wrist_y, 4)]
+        for h_idx in range(17, 23):
+            frame[h_idx] = [round(wrist_x + 0.01, 4), round(wrist_y + 0.01, 4)]
+        frame[23] = [round(hip_x, 4), round(hip_y, 4)]
+        frame[24] = [round(hip_x + 0.02, 4), round(hip_y, 4)]
+        frame[25] = [round(knee_x, 4), round(knee_y, 4)]
+        frame[26] = [round(knee_x + 0.02, 4), round(knee_y, 4)]
+        frame[27] = [round(ankle_x, 4), round(ankle_y, 4)]
+        frame[28] = [round(ankle_x + 0.02, 4), round(ankle_y, 4)]
+        frame[29] = [round(heel_x, 4), round(heel_y, 4)]
+        frame[30] = [round(heel_x + 0.02, 4), round(heel_y, 4)]
+        frame[31] = [round(foot_x, 4), round(foot_y, 4)]
+        frame[32] = [round(foot_x + 0.02, 4), round(foot_y, 4)]
+        frames.append(frame)
+
+    return {
+        "version": 1,
+        "fps": fps,
+        "aspect": 1.33,
+        "mirrored": False,
+        "frames": frames,
+        "highlight": sorted(list(set(highlight))),
+        "violations": list(violations),
+    }
+
+
+def generate_bicep_replay(violations: list = None, fps: int = 15, num_frames: int = 35) -> dict:
+    if violations is None:
+        violations = []
+
+    highlight = []
+    if "range" in violations:
+        highlight.extend([13, 15])  # Left elbow, left wrist
+    if "extension" in violations:
+        highlight.append(13)
+    if "elbowDrift" in violations:
+        highlight.append(13)
+    if "swing" in violations:
+        highlight.extend([11, 23])
+
+    range_mult = 0.6 if "range" in violations else 1.0
+
+    frames = []
+    for i in range(num_frames):
+        t = i / float(num_frames - 1)
+        d = math.sin(math.pi * t) * range_mult
+        ankle_x, ankle_y = 0.50, 0.85
+        heel_x, heel_y = 0.46, 0.88
+        foot_x, foot_y = 0.56, 0.88
+        knee_x, knee_y = 0.50, 0.65
+        hip_x, hip_y = 0.50, 0.48
+        shoulder_x, shoulder_y = 0.50, 0.25
+        elbow_x = 0.50
+        elbow_y = 0.40
+        # Forearm curl from straight down (y=0.58) to flexed (y=0.28)
+        wrist_x = 0.50 - 0.06 * d
+        wrist_y = 0.58 - 0.30 * d
+        head_x, head_y = 0.50, 0.15
+
+        frame = [None] * 33
+        for h_idx in range(11):
+            frame[h_idx] = [round(head_x, 4), round(head_y + h_idx * 0.005, 4)]
+        frame[11] = [round(shoulder_x, 4), round(shoulder_y, 4)]
+        frame[12] = [round(shoulder_x + 0.02, 4), round(shoulder_y, 4)]
+        frame[13] = [round(elbow_x, 4), round(elbow_y, 4)]
+        frame[14] = [round(elbow_x + 0.02, 4), round(elbow_y, 4)]
+        frame[15] = [round(wrist_x, 4), round(wrist_y, 4)]
+        frame[16] = [round(wrist_x + 0.02, 4), round(wrist_y, 4)]
+        for h_idx in range(17, 23):
+            frame[h_idx] = [round(wrist_x + 0.01, 4), round(wrist_y + 0.01, 4)]
+        frame[23] = [round(hip_x, 4), round(hip_y, 4)]
+        frame[24] = [round(hip_x + 0.02, 4), round(hip_y, 4)]
+        frame[25] = [round(knee_x, 4), round(knee_y, 4)]
+        frame[26] = [round(knee_x + 0.02, 4), round(knee_y, 4)]
+        frame[27] = [round(ankle_x, 4), round(ankle_y, 4)]
+        frame[28] = [round(ankle_x + 0.02, 4), round(ankle_y, 4)]
+        frame[29] = [round(heel_x, 4), round(heel_y, 4)]
+        frame[30] = [round(heel_x + 0.02, 4), round(heel_y, 4)]
+        frame[31] = [round(foot_x, 4), round(foot_y, 4)]
+        frame[32] = [round(foot_x + 0.02, 4), round(foot_y, 4)]
+        frames.append(frame)
+
+    return {
+        "version": 1,
+        "fps": fps,
+        "aspect": 1.33,
+        "mirrored": False,
+        "frames": frames,
+        "highlight": sorted(list(set(highlight))),
+        "violations": list(violations),
+    }
+
+
+def seed_demo_sessions(api_url: str, device_id: str = None):
+    target_device = get_target_device_id(device_id)
     random.seed(42)
 
     # 8 sessions spread over last 14 days (including today)
@@ -171,7 +328,7 @@ def seed_demo_sessions(api_url: str):
     now_utc = datetime.now(timezone.utc).replace(microsecond=0)
 
     created_ids = []
-    print(f"Seeding 8 demo sessions to {api_url}...")
+    print(f"Seeding 8 demo sessions to {api_url} (device: {target_device})...")
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -196,6 +353,14 @@ def seed_demo_sessions(api_url: str):
             for r_idx in range(num_reps):
                 rep = generate_rep(ex, r_idx, num_reps, current_time, drop_total)
                 set_reps.append(rep)
+
+            # Attach replay animations to reps so any rep can be replayed
+            for r in set_reps:
+                rep_violations = r.get("violations", [])
+                if ex == "squat":
+                    r["replay"] = generate_squat_replay(violations=rep_violations)
+                else:
+                    r["replay"] = generate_bicep_replay(violations=rep_violations)
 
             first_rep = set_reps[0]
             last_rep = set_reps[-1]
@@ -227,7 +392,10 @@ def seed_demo_sessions(api_url: str):
         req = urllib.request.Request(
             f"{api_url}/sessions",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Device-Id": target_device,
+            },
             method="POST",
         )
 
@@ -264,6 +432,11 @@ def main():
         help=f"Backend API URL (default: {DEFAULT_API_URL})",
     )
     parser.add_argument(
+        "--device-id",
+        default=None,
+        help="Device ID (UUID v4) to associate with demo sessions (default: latest active browser device)",
+    )
+    parser.add_argument(
         "--clear",
         action="store_true",
         help="Delete all demo sessions previously created by this script.",
@@ -273,9 +446,9 @@ def main():
     api_url = args.api_url.rstrip("/")
 
     if args.clear:
-        clear_demo_sessions(api_url)
+        clear_demo_sessions(api_url, device_id=args.device_id)
     else:
-        seed_demo_sessions(api_url)
+        seed_demo_sessions(api_url, device_id=args.device_id)
 
 
 if __name__ == "__main__":

@@ -168,8 +168,8 @@ def test_b_validation_422_single_replay_cases(client: TestClient, case_name: str
     assert resp.status_code == 422, f"Expected 422 for case '{case_name}', got {resp.status_code}: {resp.text}"
 
 
-def test_b_validation_422_two_replays_in_same_set(client: TestClient):
-    # Two replays in the same set must be rejected with 422
+def test_b_multiple_replays_in_same_set_allowed(client: TestClient):
+    # Multiple replays in the same set are accepted so any rep can have replay data
     replay1 = make_valid_replay(num_frames=3)
     replay2 = make_valid_replay(num_frames=3)
     payload = make_session_payload(
@@ -196,8 +196,18 @@ def test_b_validation_422_two_replays_in_same_set(client: TestClient):
     )
 
     resp = client.post("/sessions", json=payload)
-    assert resp.status_code == 422
-    assert "More than one replay in the same set is not allowed" in resp.text
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["sets"][0]["reps"][0]["has_replay"] is True
+    assert data["sets"][0]["reps"][1]["has_replay"] is True
+
+    # Both replays can be fetched individually
+    rep1_id = data["sets"][0]["reps"][0]["id"]
+    rep2_id = data["sets"][0]["reps"][1]["id"]
+    r1 = client.get(f"/reps/{rep1_id}/replay")
+    assert r1.status_code == 200
+    r2 = client.get(f"/reps/{rep2_id}/replay")
+    assert r2.status_code == 200
 
 
 # c. GET /reps/99999/replay gives 404, and a rep without replay gives 404.

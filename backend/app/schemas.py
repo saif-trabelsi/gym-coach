@@ -169,9 +169,6 @@ class WorkoutSetCreate(BaseModel):
     def validate_set(self) -> "WorkoutSetCreate":
         if self.ended_at < self.started_at:
             raise ValueError("ended_at cannot be before started_at")
-        replays_count = sum(1 for r in self.reps if r.replay is not None)
-        if replays_count > 1:
-            raise ValueError("More than one replay in the same set is not allowed")
         return self
 
 
