@@ -3,7 +3,7 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!assets/|wasm/|models/|.*\\..*).*)",
       "destination": "/index.html"
     }
   ],

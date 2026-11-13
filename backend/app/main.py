@@ -86,13 +86,19 @@ app = FastAPI(
     debug=os.getenv("DEBUG", "false").lower() == "true",
 )
 
-raw_allowed_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+raw_allowed_origins = (os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGINS", "")).strip()
+allowed_origins = []
 if raw_allowed_origins:
-    allowed_origins = [orig.strip() for orig in raw_allowed_origins.split(",") if orig.strip()]
-else:
+    for orig in raw_allowed_origins.split(","):
+        orig = orig.strip()
+        if orig and "*" not in orig:
+            allowed_origins.append(orig)
+
+if not allowed_origins:
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:3000",
     ]
 
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -100,9 +106,10 @@ app.add_middleware(PerDeviceRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*", "X-Device-Id"],
+    allow_headers=["*"],
 )
 
 app.include_router(sessions_router)
