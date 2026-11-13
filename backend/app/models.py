@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from sqlalchemy import Column, DateTime, JSON, String, TypeDecorator, UniqueConstraint
+from sqlalchemy import BigInteger, Column, DateTime, JSON, String, TypeDecorator, UniqueConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -77,7 +77,7 @@ class Rep(SQLModel, table=True):
     duration_ms: int
     metrics: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     violations: List[str] = Field(default_factory=list, sa_column=Column(JSON))
-    timestamp: int
+    timestamp: int = Field(sa_column=Column(BigInteger, nullable=False))
 
     workout_set: Optional[WorkoutSet] = Relationship(back_populates="reps")
     replay: Optional["RepReplay"] = Relationship(

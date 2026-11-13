@@ -53,6 +53,11 @@ def migrate_db(target_engine: Optional[Engine] = None) -> None:
                 conn.execute(
                     text("CREATE INDEX IF NOT EXISTS ix_session_device_id ON session(device_id)")
                 )
+        if "rep" in tables and "sqlite" not in str(eng.url):
+            try:
+                conn.execute(text("ALTER TABLE rep ALTER COLUMN timestamp TYPE BIGINT"))
+            except Exception:
+                pass
 
 
 def init_db(target_engine: Optional[Engine] = None) -> None:

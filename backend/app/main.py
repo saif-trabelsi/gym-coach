@@ -76,7 +76,8 @@ class PerDeviceRateLimitMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    if not os.getenv("TESTING"):
+        init_db()
     yield
 
 

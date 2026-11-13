@@ -1,3 +1,6 @@
+import os
+os.environ["TESTING"] = "1"
+
 from typing import Generator
 import pytest
 from fastapi.testclient import TestClient
