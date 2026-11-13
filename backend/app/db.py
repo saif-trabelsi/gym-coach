@@ -1,12 +1,15 @@
 import os
 from pathlib import Path
 from typing import Generator, Optional
+from dotenv import load_dotenv
 from sqlalchemy import event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+
+load_dotenv(BASE_DIR / ".env")
 
 raw_db_url = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'gymcoach.db'}").strip()
 # Normalize legacy postgres:// prefix to postgresql:// for SQLAlchemy 2.0+
@@ -27,7 +30,7 @@ engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
-    if "sqlite" in str(type(dbapi_connection)).lower() or hasattr(dbapi_connection, "cursor"):
+    if "sqlite" in str(type(dbapi_connection)).lower():
         try:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
@@ -53,6 +56,7 @@ def migrate_db(target_engine: Optional[Engine] = None) -> None:
 
 
 def init_db(target_engine: Optional[Engine] = None) -> None:
+    import app.models  # noqa: F401
     eng = target_engine or engine
     if DATABASE_URL.startswith("sqlite:///"):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
