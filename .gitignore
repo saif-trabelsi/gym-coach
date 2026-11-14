@@ -1,11 +1,55 @@
+# Dependencies
 node_modules/
 dist/
-.env
+dist-ssr/
 .venv/
-__pycache__/
-*.pyc
-.DS_Store
+env/
+venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Database and runtime data
+*.db
+*.sqlite
 backend/data/
 backend/data/demo_session_ids.json
-*.db
+
+# Python & Testing cache
+__pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Raw media, video & audio recording clips
+*.mp4
+*.m4a
+*.mov
+*.avi
+*.webm
+*.wav
+*.mp3
+
+# Internal development notes & AI scaffolding (Local only)
+AGENTS.md
+docs/DEMO_SCRIPT.md
+docs/ROADMAP.md
+
+

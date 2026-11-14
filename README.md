@@ -167,12 +167,6 @@ npm run build
 
 ---
 
-## Demo Video Kit & Storyboard
-
-A 60-second video demo walkthrough script and filming checklist is included in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
-
----
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
