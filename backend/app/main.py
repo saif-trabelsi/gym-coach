@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Gym Coach API",
+    title="GhostCoach API",
     lifespan=lifespan,
     debug=os.getenv("DEBUG", "false").lower() == "true",
 )

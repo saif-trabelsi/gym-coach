@@ -1,12 +1,12 @@
-# AI Gym Coach
+# GhostCoach 👻
 
-[![CI](https://github.com/your-username/gym-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/gym-coach/actions/workflows/ci.yml)
+[![CI](https://github.com/saif-trabelsi/gym-coach/actions/workflows/ci.yml/badge.svg)](https://github.com/saif-trabelsi/gym-coach/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Node 20+](https://img.shields.io/badge/node-20+-green.svg)](https://nodejs.org/)
 [![MediaPipe](https://img.shields.io/badge/MediaPipe-Pose%20Landmarker-orange.svg)](https://developers.google.com/mediapipe)
 
-**AI Gym Coach** is a real-time, privacy-first computer vision fitness trainer running entirely in the browser. It tracks reps, analyzes exercise biomechanics (depth, knee valgus, spine angle, elbow flexion, torso momentum), delivers zero-latency voice coaching via Web Speech API, generates multi-lingual AI coaching reports via Gemini with deterministic fallback, and records interactive 3D skeleton replays of your worst reps.
+**GhostCoach** is a real-time, privacy-first computer vision fitness trainer running entirely in the browser. It tracks reps, analyzes exercise biomechanics (depth, knee valgus, spine angle, elbow flexion, torso momentum), delivers zero-latency voice coaching via Web Speech API, generates multi-lingual smart coaching reports with deterministic fallback, and records interactive 3D skeleton replays of your repetitions.
 
 ---
 
@@ -117,7 +117,7 @@ npm run dev
 
 ## 100% Free Hosting Deployment
 
-AI Gym Coach can be deployed on permanent free tiers with zero monthly hosting costs:
+GhostCoach can be deployed on permanent free tiers with zero monthly hosting costs:
 
 - **Frontend**: [Vercel](https://vercel.com) (Static SPA hosting with global CDN & camera permission headers).
 - **Backend**: [Render.com](https://render.com) (Free 0.1 CPU / 512MB RAM web service) or [Koyeb](https://koyeb.com).

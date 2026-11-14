@@ -12,17 +12,17 @@ export interface ParsedRoute {
 export function getTitleForRoute(route: ParsedRoute): string {
   switch (route.view) {
     case 'coach':
-      return 'AI Gym Coach — Real-Time Form Coaching';
+      return 'GhostCoach — Real-Time Form Coaching';
     case 'history':
       return route.id
-        ? `Session #${route.id} Details | AI Gym Coach`
-        : 'Workout History | AI Gym Coach';
+        ? `Session #${route.id} Details | GhostCoach`
+        : 'Workout History | GhostCoach';
     case 'progress':
-      return 'Progress Analytics | AI Gym Coach';
+      return 'Progress Analytics | GhostCoach';
     case 'not-found':
-      return 'Page Not Found | AI Gym Coach';
+      return 'Page Not Found | GhostCoach';
     default:
-      return 'AI Gym Coach';
+      return 'GhostCoach';
   }
 }
 

@@ -119,7 +119,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             </div>
             <div>
               <span className="text-base font-black tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-                AI Gym Coach
+                GhostCoach
                 <span className="hidden md:inline-block text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
                   v1.0
                 </span>
@@ -216,7 +216,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       {/* Footer */}
       <footer className="border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] py-6 text-center text-xs text-[var(--text-muted)]">
         <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>© 2026 AI Gym Coach. Private & on-device pose estimation.</p>
+          <p>© 2026 GhostCoach. Private & on-device pose estimation.</p>
           <div className="flex items-center gap-4 text-[var(--text-secondary)]">
             <a href="#coach" className="hover:text-[var(--text-primary)]">Coach</a>
             <a href="#history" className="hover:text-[var(--text-primary)]">History</a>

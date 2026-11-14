@@ -1,6 +1,6 @@
 {
-  "name": "AI Gym Coach — Real-Time Form Coaching",
-  "short_name": "GymCoach",
+  "name": "GhostCoach — Real-Time Form Coaching",
+  "short_name": "GhostCoach",
   "description": "Real-time AI squat and bicep curl coaching directly on your device with private on-device pose estimation.",
   "start_url": "/",
   "id": "/",

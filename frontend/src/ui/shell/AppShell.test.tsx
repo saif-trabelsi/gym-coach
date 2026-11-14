@@ -32,7 +32,7 @@ describe('AppShell layout and navigation', () => {
       </AppShell>
     );
 
-    expect(screen.getByText('AI Gym Coach')).toBeTruthy();
+    expect(screen.getByText('GhostCoach')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: /main navigation/i })).toBeTruthy();
     expect(screen.getByRole('navigation', { name: /mobile navigation/i })).toBeTruthy();
   });
